@@ -1,0 +1,20 @@
+{
+  "name": "HomeAssistantArduinoMQTT",
+  "version": "0.0.0",
+  "description": "Home Assistant MQTT",
+  "authors": [
+    {
+      "name": "Alberto Bettin"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bettapro/HomeAssistantArduinoMQTT.git"
+  },
+  "frameworks": "arduino",
+  "platforms": ["espressif8266", "espressif32"],
+  "dependencies": {
+    "ArduinoJson": ">=7.0.0",
+    "PubSubClient": ">=2.8"
+  }
+}
