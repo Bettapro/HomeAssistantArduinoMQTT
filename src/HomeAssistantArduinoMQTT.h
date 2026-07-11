@@ -37,8 +37,6 @@ extern const char CONFIGURATION_URL[] PROGMEM;
 extern const char MODEL[] PROGMEM;
 extern const char NAME[] PROGMEM;
 extern const char SW_VERSION[] PROGMEM;
-extern const char ORIGIN[] PROGMEM;
-extern const char SW[] PROGMEM;
 extern const char UNIQUE_ID[] PROGMEM;
 extern const char ENABLED_DEFAULT[] PROGMEM;
 extern const char COMMAND_TOPIC[] PROGMEM;
@@ -108,9 +106,6 @@ class HomeAssistantArduinoMQTT {
 
         const char* ConfigurationUrl = "";
 
-        const char* OriginName = "";
-        const char* OriginVersion = "";
-
         const char* Manufacturer = "";
         const char* Model = "";
         const char* Version = "";
@@ -119,6 +114,7 @@ class HomeAssistantArduinoMQTT {
 
         bool useSharedAvailability = true;
         bool prefixUniqueIds = true;
+        bool enableConfigPublishing = true;
 
         HomeAssistantArduinoMQTT(uint8_t maxEntityNum = 24);
         ~HomeAssistantArduinoMQTT();

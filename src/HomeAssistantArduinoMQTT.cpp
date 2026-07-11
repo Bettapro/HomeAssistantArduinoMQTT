@@ -11,8 +11,6 @@ const char HAKeys::CONFIGURATION_URL[] PROGMEM = "cu";
 const char HAKeys::MODEL[] PROGMEM = "mdl";
 const char HAKeys::NAME[] PROGMEM = "name";
 const char HAKeys::SW_VERSION[] PROGMEM = "sw";
-const char HAKeys::ORIGIN[] PROGMEM = "o";
-const char HAKeys::SW[] PROGMEM = "sw";
 const char HAKeys::UNIQUE_ID[] PROGMEM = "uniq_id";
 const char HAKeys::ENABLED_DEFAULT[] PROGMEM = "en";
 const char HAKeys::COMMAND_TOPIC[] PROGMEM = "cmd_t";
@@ -188,79 +186,77 @@ HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(const char* id, const 
 }
 
 void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, const char* name, JsonDocument& doc, bool commandTopic, bool stateTopic, const char* commandTopicName, const char* startupValue, bool independentAvailability) {
-    char entityId[64];
+    if (enableConfigPublishing) {
+        char entityId[64];
 
-    if (id && strlen(id) > 0) {
-        sanitizeID(id, entityId, sizeof(entityId));
-    } else if (name && strlen(name) > 0) {
-        sanitizeID(name, entityId, sizeof(entityId));
-    } else {
-        entityId[0] = '\0';
-    }
+        if (id && strlen(id) > 0) {
+            sanitizeID(id, entityId, sizeof(entityId));
+        } else if (name && strlen(name) > 0) {
+            sanitizeID(name, entityId, sizeof(entityId));
+        } else {
+            entityId[0] = '\0';
+        }
 
-    char topic[128];
-    snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_5_PH,
-             FPSTR(HAKeys::PREFIX),
-             type,
-             _sanitizedDeviceName,
-             entityId,
-             FPSTR(HAKeys::TOPIC_CONFIG));
+        char topic[128];
+        snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_5_PH,
+                   FPSTR(HAKeys::PREFIX),
+                   type,
+                   _sanitizedDeviceName,
+                   entityId,
+                   FPSTR(HAKeys::TOPIC_CONFIG));
 
-    JsonArray availArray = doc[HAKeys::AVAILABILITY].to<JsonArray>();
+        JsonArray availArray = doc[HAKeys::AVAILABILITY].to<JsonArray>();
 
-    if (useSharedAvailability) {
-        JsonObject availObj = availArray.add<JsonObject>();
-        availObj[HAKeys::TOPIC] = StatusTopic;
-    }
+        if (useSharedAvailability) {
+            JsonObject availObj = availArray.add<JsonObject>();
+            availObj[HAKeys::TOPIC] = StatusTopic;
+        }
 
-    if (independentAvailability) {
-        JsonObject indAvailObj = availArray.add<JsonObject>();
-        char indAvailTopic[128];
-        snprintf_P(indAvailTopic, sizeof(indAvailTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::AVAILABILITY));
-        indAvailObj[HAKeys::TOPIC] = indAvailTopic;
-    }
+        if (independentAvailability) {
+            JsonObject indAvailObj = availArray.add<JsonObject>();
+            char indAvailTopic[128];
+            snprintf_P(indAvailTopic, sizeof(indAvailTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::AVAILABILITY));
+            indAvailObj[HAKeys::TOPIC] = indAvailTopic;
+        }
 
-    JsonObject device = doc[HAKeys::DEVICE].to<JsonObject>();
-    JsonArray identifiers = device[HAKeys::IDENTIFIERS].to<JsonArray>();
-    identifiers.add(_sanitizedDeviceName);
-    device[HAKeys::MANUFACTURER] = Manufacturer;
-    device[HAKeys::MODEL] = Model;
-    device[HAKeys::NAME] = HADeviceName;
-    device[HAKeys::SW_VERSION] = Version;
-    if (name && strlen(name) > 0) device[HAKeys::CONFIGURATION_URL] = ConfigurationUrl;
+        JsonObject device = doc[HAKeys::DEVICE].to<JsonObject>();
+        JsonArray identifiers = device[HAKeys::IDENTIFIERS].to<JsonArray>();
+        identifiers.add(_sanitizedDeviceName);
+        device[HAKeys::MANUFACTURER] = Manufacturer;
+        device[HAKeys::MODEL] = Model;
+        device[HAKeys::NAME] = HADeviceName;
+        device[HAKeys::SW_VERSION] = Version;
+        if (name && strlen(name) > 0) device[HAKeys::CONFIGURATION_URL] = ConfigurationUrl;
 
-    JsonObject origin = doc[HAKeys::ORIGIN].to<JsonObject>();
-    origin[HAKeys::NAME] = OriginName;
-    origin[HAKeys::SW] = OriginVersion;
+        if (name && strlen(name) > 0) doc[HAKeys::NAME] = name;
 
-    if (name && strlen(name) > 0) doc[HAKeys::NAME] = name;
+        char uniqueId[128];
+        if (prefixUniqueIds) {
+            snprintf(uniqueId, sizeof(uniqueId), "%s_%s", _sanitizedDeviceName, entityId);
+        } else {
+            snprintf(uniqueId, sizeof(uniqueId), "%s", entityId);
+        }
+        doc[HAKeys::UNIQUE_ID] = uniqueId;
+        doc[HAKeys::ENABLED_DEFAULT] = true;
 
-    char uniqueId[128];
-    if (prefixUniqueIds) {
-        snprintf(uniqueId, sizeof(uniqueId), "%s_%s", _sanitizedDeviceName, entityId);
-    } else {
-        snprintf(uniqueId, sizeof(uniqueId), "%s", entityId);
-    }
-    doc[HAKeys::UNIQUE_ID] = uniqueId;
-    doc[HAKeys::ENABLED_DEFAULT] = true;
+        char cmdTopic[128] = {0};
+        if (commandTopic) {
+            const char* cmdName = (commandTopicName && strlen(commandTopicName) > 0) ? commandTopicName : entityId;
+            snprintf_P(cmdTopic, sizeof(cmdTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, cmdName, FPSTR(HAKeys::TOPIC_COMMAND));
+            doc[HAKeys::COMMAND_TOPIC] = cmdTopic;
+        }
 
-    char cmdTopic[128] = {0};
-    if (commandTopic) {
-        const char* cmdName = (commandTopicName && strlen(commandTopicName) > 0) ? commandTopicName : entityId;
-        snprintf_P(cmdTopic, sizeof(cmdTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, cmdName, FPSTR(HAKeys::TOPIC_COMMAND));
-        doc[HAKeys::COMMAND_TOPIC] = cmdTopic;
-    }
+        if (stateTopic) {
+            char statTopic[128];
+            snprintf_P(statTopic, sizeof(statTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::TOPIC_STATE));
+            doc[HAKeys::STATE_TOPIC] = statTopic;
+        }
 
-    if (stateTopic) {
-        char statTopic[128];
-        snprintf_P(statTopic, sizeof(statTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::TOPIC_STATE));
-        doc[HAKeys::STATE_TOPIC] = statTopic;
-    }
-
-    size_t jsonLen = measureJson(doc);
-    if (mqttClient->beginPublish(topic, jsonLen, true)) {
-        serializeJson(doc, *mqttClient);
-        mqttClient->endPublish();
+        size_t jsonLen = measureJson(doc);
+        if (mqttClient->beginPublish(topic, jsonLen, true)) {
+            serializeJson(doc, *mqttClient);
+            mqttClient->endPublish();
+        }
     }
 
     if (commandTopic && cmdTopic[0] != '\0') mqttClient->subscribe(cmdTopic);
