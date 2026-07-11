@@ -2,7 +2,6 @@
 
 #define VALUE_TOPIC_PREFIX "haam"
 
-
 const char HAKeys::AVAILABILITY[] PROGMEM = "avty";
 const char HAKeys::TOPIC[] PROGMEM = "t";
 const char HAKeys::DEVICE[] PROGMEM = "dev";
@@ -39,17 +38,18 @@ const char HAKeys::VAL_TRUE[] PROGMEM = "true";
 const char HAKeys::VAL_FALSE[] PROGMEM = "false";
 const char HAKeys::VAL_PRESS[] PROGMEM = "PRESS";
 
-const char HAKeys::PREFIX[] PROGMEM = "homeassistant/";
-const char HAKeys::SUFFIX_CONFIG[] PROGMEM = "/config";
+const char HAKeys::PREFIX[] PROGMEM = "homeassistant";
 const char HAKeys::ONLINE_PAYLOAD[] PROGMEM = "online";
 const char HAKeys::OFFLINE_PAYLOAD[] PROGMEM = "offline";
 
+const char HAKeys::TOPIC_CONFIG[] PROGMEM = "config";
 // const char HAKeys::TOPIC_STATUS[] PROGMEM = "status";
 const char HAKeys::TOPIC_STATE[] PROGMEM = "state";
 const char HAKeys::TOPIC_COMMAND[] PROGMEM = "set";
 
 const char HAKeys::TOPIC_3_PH[] PROGMEM = "%s/%s/%s";
 const char HAKeys::TOPIC_4_PH[] PROGMEM = "%s/%s/%s/%s";
+const char HAKeys::TOPIC_5_PH[] PROGMEM = "%s/%s/%s/%s/%s";
 
 HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     mqttClient = nullptr;
@@ -96,7 +96,7 @@ void HomeAssistantArduinoMQTT::begin(const char* server, const uint16_t port) {
 
 void HomeAssistantArduinoMQTT::begin(const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive) {
     sanitizeID(MQTTDeviceName, _sanitizedDeviceName, sizeof(_sanitizedDeviceName));
-    snprintf(StatusTopic, sizeof(StatusTopic), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, HAKeys::AVAILABILITY);
+    snprintf_P(StatusTopic, sizeof(StatusTopic), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, FPSTR(HAKeys::AVAILABILITY));
 
     delete wifiClient;
     wifiClient = new WiFiClient();
@@ -199,7 +199,12 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
     }
 
     char topic[128];
-    snprintf(topic, sizeof(topic), "homeassistant/%s/%s/%s/config", type, _sanitizedDeviceName, entityId);
+    snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_5_PH,
+             FPSTR(HAKeys::PREFIX),
+             type,
+             _sanitizedDeviceName,
+             entityId,
+             FPSTR(HAKeys::TOPIC_CONFIG));
 
     JsonArray availArray = doc[HAKeys::AVAILABILITY].to<JsonArray>();
 
@@ -211,7 +216,7 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
     if (independentAvailability) {
         JsonObject indAvailObj = availArray.add<JsonObject>();
         char indAvailTopic[128];
-        snprintf(indAvailTopic, sizeof(indAvailTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, HAKeys::AVAILABILITY);
+        snprintf_P(indAvailTopic, sizeof(indAvailTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::AVAILABILITY));
         indAvailObj[HAKeys::TOPIC] = indAvailTopic;
     }
 
@@ -242,13 +247,13 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
     char cmdTopic[128] = {0};
     if (commandTopic) {
         const char* cmdName = (commandTopicName && strlen(commandTopicName) > 0) ? commandTopicName : entityId;
-        snprintf(cmdTopic, sizeof(cmdTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, cmdName, HAKeys::TOPIC_COMMAND);
+        snprintf_P(cmdTopic, sizeof(cmdTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, cmdName, FPSTR(HAKeys::TOPIC_COMMAND));
         doc[HAKeys::COMMAND_TOPIC] = cmdTopic;
     }
 
     if (stateTopic) {
         char statTopic[128];
-        snprintf(statTopic, sizeof(statTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, HAKeys::TOPIC_STATE);
+        snprintf_P(statTopic, sizeof(statTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::TOPIC_STATE));
         doc[HAKeys::STATE_TOPIC] = statTopic;
     }
 
@@ -270,7 +275,7 @@ void HomeAssistantArduinoMQTT::clearSetTopic(const char* item) {
     sanitizeID(item, sanitizedItem, sizeof(sanitizedItem));
 
     char topic[128];
-    snprintf(topic, sizeof(topic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, HAKeys::TOPIC_COMMAND);
+    snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, FPSTR(HAKeys::TOPIC_COMMAND));
     mqttClient->publish(topic, "", false);
 }
 
@@ -334,7 +339,7 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
     if (targetIndex == -1 && emptySlot != -1) {
         strncpy(values[emptySlot].item, sanitizedItem, sizeof(values[emptySlot].item) - 1);
         values[emptySlot].item[sizeof(values[emptySlot].item) - 1] = '\0';
-        values[emptySlot].value[0] = '\0'; 
+        values[emptySlot].value[0] = '\0';
         targetIndex = emptySlot;
     }
 
@@ -344,7 +349,7 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
         }
 
         char topic[128];
-        snprintf(topic, sizeof(topic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, HAKeys::AVAILABILITY);
+        snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, FPSTR(HAKeys::AVAILABILITY));
         const char* payload = isAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
 
         if (mqttClient->publish(topic, payload, true)) {
@@ -355,7 +360,7 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
 
 void HomeAssistantArduinoMQTT::readValues() {
     char wildTopic[128];
-    snprintf(wildTopic, sizeof(wildTopic), "%s/%s/+/%s", VALUE_TOPIC_PREFIX, _sanitizedDeviceName, HAKeys::TOPIC_STATE);
+    snprintf_P(wildTopic, sizeof(wildTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", FPSTR(HAKeys::TOPIC_STATE));
     mqttClient->subscribe(wildTopic);
 }
 
@@ -366,7 +371,7 @@ void HomeAssistantArduinoMQTT::sendValues() {
     for (int i = 0; i < maxEntityNum; i++) {
         if (strlen(values[i].item) > 0) {
             if (_forcePublishAll) {
-                snprintf(topicAvail, sizeof(topicAvail), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::AVAILABILITY);
+                snprintf_P(topicAvail, sizeof(topicAvail), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, FPSTR(HAKeys::AVAILABILITY));
                 const char* payload = values[i].lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
                 mqttClient->publish(topicAvail, payload, true);
             }
@@ -375,7 +380,7 @@ void HomeAssistantArduinoMQTT::sendValues() {
                 continue;
             }
 
-            snprintf(topicState, sizeof(topicState), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::TOPIC_STATE);
+            snprintf_P(topicState, sizeof(topicState), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, FPSTR(HAKeys::TOPIC_STATE));
 
             if (mqttClient->publish(topicState, values[i].value, true)) {
                 values[i].isFirstValue = false;
@@ -397,7 +402,7 @@ void HomeAssistantArduinoMQTT::sendValue(const char* item) {
                 return;
             }
 
-            snprintf(topic, sizeof(topic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, HAKeys::TOPIC_STATE);
+            snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, FPSTR(HAKeys::TOPIC_STATE));
             if (mqttClient->publish(topic, values[i].value, true)) {
                 values[i].isFirstValue = false;
                 values[i].valueChanged = false;
@@ -409,7 +414,7 @@ void HomeAssistantArduinoMQTT::sendValue(const char* item) {
 
 void HomeAssistantArduinoMQTT::sendCommand(const char* commandTopic, const char* payload) {
     char topic[128];
-    snprintf(topic, sizeof(topic), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, commandTopic);
+    snprintf_P(topic, sizeof(topic), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, commandTopic);
     mqttClient->publish(topic, payload, false);
 }
 

@@ -65,16 +65,17 @@ extern const char VAL_FALSE[] PROGMEM;
 extern const char VAL_PRESS[] PROGMEM;
 
 extern const char PREFIX[] PROGMEM;
-extern const char SUFFIX_CONFIG[] PROGMEM;
 extern const char ONLINE_PAYLOAD[] PROGMEM;
 extern const char OFFLINE_PAYLOAD[] PROGMEM;
 
+extern const char TOPIC_CONFIG[] PROGMEM;
 // extern const char TOPIC_STATUS[] PROGMEM;
 extern const char TOPIC_STATE[] PROGMEM;
 extern const char TOPIC_COMMAND[] PROGMEM;
 
 extern const char TOPIC_3_PH[] PROGMEM;
 extern const char TOPIC_4_PH[] PROGMEM;
+extern const char TOPIC_5_PH[] PROGMEM;
 
 }  // namespace HAKeys
 
