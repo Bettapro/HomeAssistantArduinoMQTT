@@ -20,11 +20,13 @@
 #endif
 
 struct ItemValue {
-        char item[64];
+        char item[32]; 
         char value[16];
-        bool lastAvailable = false;
-        bool isFirstValue = true;
-        bool valueChanged = true;
+
+        uint8_t lastAvailable : 1;
+        uint8_t isFirstValue : 1;
+        uint8_t valueChanged : 1;
+        uint8_t isConfigured : 1;
 };
 
 namespace HAKeys {
@@ -67,14 +69,12 @@ extern const char ONLINE_PAYLOAD[] PROGMEM;
 extern const char OFFLINE_PAYLOAD[] PROGMEM;
 
 extern const char TOPIC_CONFIG[] PROGMEM;
-// extern const char TOPIC_STATUS[] PROGMEM;
 extern const char TOPIC_STATE[] PROGMEM;
 extern const char TOPIC_COMMAND[] PROGMEM;
 
 extern const char TOPIC_3_PH[] PROGMEM;
 extern const char TOPIC_4_PH[] PROGMEM;
 extern const char TOPIC_5_PH[] PROGMEM;
-
 }  // namespace HAKeys
 
 class HAEntityBuilder;
@@ -86,8 +86,10 @@ class HomeAssistantArduinoMQTT {
         WiFiClient* wifiClient;
         PubSubClient* mqttClient;
 
-        char StatusTopic[128];
-        char _sanitizedDeviceName[64];
+        char StatusTopic[64];           
+        char _sanitizedDeviceName[32];  
+        
+        char _sharedTopicBuffer[80];
 
         ItemValue* values;
 
@@ -99,6 +101,8 @@ class HomeAssistantArduinoMQTT {
         uint8_t maxEntityNum;
 
         bool _forcePublishAll = false;
+        unsigned long _lastReconnectAttempt = 0; 
+        bool _readValuesEnabled = false; 
 
     public:
         const char* MqttUser = "";
