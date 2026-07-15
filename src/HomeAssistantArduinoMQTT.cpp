@@ -2,55 +2,56 @@
 
 #define VALUE_TOPIC_PREFIX "haam"
 
-const char HAKeys::AVAILABILITY[] PROGMEM = "avty";
-const char HAKeys::TOPIC[] PROGMEM = "t";
-const char HAKeys::DEVICE[] PROGMEM = "dev";
-const char HAKeys::IDENTIFIERS[] PROGMEM = "ids";
-const char HAKeys::MANUFACTURER[] PROGMEM = "mf";
-const char HAKeys::CONFIGURATION_URL[] PROGMEM = "cu";
-const char HAKeys::MODEL[] PROGMEM = "mdl";
-const char HAKeys::NAME[] PROGMEM = "name";
-const char HAKeys::SW_VERSION[] PROGMEM = "sw";
-const char HAKeys::UNIQUE_ID[] PROGMEM = "uniq_id";
-const char HAKeys::ENABLED_DEFAULT[] PROGMEM = "en";
-const char HAKeys::COMMAND_TOPIC[] PROGMEM = "cmd_t";
-const char HAKeys::STATE_TOPIC[] PROGMEM = "stat_t";
-const char HAKeys::ENTITY_CATEGORY[] PROGMEM = "ent_cat";
-const char HAKeys::DEVICE_CLASS[] PROGMEM = "dev_cla";
-const char HAKeys::STATE_CLASS[] PROGMEM = "stat_cla";
-const char HAKeys::ICON[] PROGMEM = "ic";
-const char HAKeys::UNIT_OF_MEASUREMENT[] PROGMEM = "unit_of_meas";
+const char HAKeys::AVAILABILITY[] = "avty";
+const char HAKeys::TOPIC[] = "t";
+const char HAKeys::DEVICE[] = "dev";
+const char HAKeys::IDENTIFIERS[] = "ids";
+const char HAKeys::MANUFACTURER[] = "mf";
+const char HAKeys::CONFIGURATION_URL[] = "cu";
+const char HAKeys::MODEL[] = "mdl";
+const char HAKeys::NAME[] = "name";
+const char HAKeys::SW_VERSION[] = "sw";
+const char HAKeys::UNIQUE_ID[] = "uniq_id";
+const char HAKeys::ENABLED_DEFAULT[] = "en";
+const char HAKeys::COMMAND_TOPIC[] = "cmd_t";
+const char HAKeys::STATE_TOPIC[] = "stat_t";
+const char HAKeys::ENTITY_CATEGORY[] = "ent_cat";
+const char HAKeys::DEVICE_CLASS[] = "dev_cla";
+const char HAKeys::STATE_CLASS[] = "stat_cla";
+const char HAKeys::ICON[] = "ic";
+const char HAKeys::UNIT_OF_MEASUREMENT[] = "unit_of_meas";
 
-const char HAKeys::TYPE_SENSOR[] PROGMEM = "sensor";
-const char HAKeys::TYPE_BINARY_SENSOR[] PROGMEM = "binary_sensor";
-const char HAKeys::TYPE_SWITCH[] PROGMEM = "switch";
-const char HAKeys::TYPE_BUTTON[] PROGMEM = "button";
-const char HAKeys::TYPE_NUMBER[] PROGMEM = "number";
-const char HAKeys::TYPE_SELECT[] PROGMEM = "select";
+const char HAKeys::TYPE_SENSOR[] = "sensor";
+const char HAKeys::TYPE_BINARY_SENSOR[] = "binary_sensor";
+const char HAKeys::TYPE_SWITCH[] = "switch";
+const char HAKeys::TYPE_BUTTON[] = "button";
+const char HAKeys::TYPE_NUMBER[] = "number";
+const char HAKeys::TYPE_SELECT[] = "select";
 
-const char HAKeys::PAYLOAD_ON[] PROGMEM = "pl_on";
-const char HAKeys::PAYLOAD_OFF[] PROGMEM = "pl_off";
-const char HAKeys::PAYLOAD_PRESS[] PROGMEM = "pl_prs";
+const char HAKeys::PAYLOAD_ON[] = "pl_on";
+const char HAKeys::PAYLOAD_OFF[] = "pl_off";
+const char HAKeys::PAYLOAD_PRESS[] = "pl_prs";
 
-const char HAKeys::VAL_TRUE[] PROGMEM = "true";
-const char HAKeys::VAL_FALSE[] PROGMEM = "false";
-const char HAKeys::VAL_PRESS[] PROGMEM = "PRESS";
+const char HAKeys::VAL_TRUE[] = "true";
+const char HAKeys::VAL_FALSE[] = "false";
+const char HAKeys::VAL_PRESS[] = "PRESS";
 
-const char HAKeys::PREFIX[] PROGMEM = "homeassistant";
-const char HAKeys::ONLINE_PAYLOAD[] PROGMEM = "online";
-const char HAKeys::OFFLINE_PAYLOAD[] PROGMEM = "offline";
+const char HAKeys::PREFIX[] = "homeassistant";
+const char HAKeys::ONLINE_PAYLOAD[] = "online";
+const char HAKeys::OFFLINE_PAYLOAD[] = "offline";
 
-const char HAKeys::TOPIC_CONFIG[] PROGMEM = "config";
-const char HAKeys::TOPIC_STATE[] PROGMEM = "state";
-const char HAKeys::TOPIC_COMMAND[] PROGMEM = "set";
+const char HAKeys::TOPIC_CONFIG[] = "config";
+const char HAKeys::TOPIC_STATE[] = "state";
+const char HAKeys::TOPIC_COMMAND[] = "set";
 
-const char HAKeys::TOPIC_3_PH[] PROGMEM = "%s/%s/%s";
-const char HAKeys::TOPIC_4_PH[] PROGMEM = "%s/%s/%s/%s";
-const char HAKeys::TOPIC_5_PH[] PROGMEM = "%s/%s/%s/%s/%s";
+const char HAKeys::TOPIC_3_PH[] = "%s/%s/%s";
+const char HAKeys::TOPIC_4_PH[] = "%s/%s/%s/%s";
+const char HAKeys::TOPIC_5_PH[] = "%s/%s/%s/%s/%s";
 
 HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     mqttClient = nullptr;
-    wifiClient = nullptr;
+    _client = nullptr; 
+    _callbackListener = nullptr;
     maxEntityNum = maxN;
     values = new ItemValue[maxEntityNum]();
     
@@ -69,7 +70,6 @@ HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
 
 HomeAssistantArduinoMQTT::~HomeAssistantArduinoMQTT() {
     delete mqttClient;
-    delete wifiClient;
     delete[] values;
 }
 
@@ -92,26 +92,30 @@ void HomeAssistantArduinoMQTT::sanitizeID(const char* input, char* output, size_
     output[writeIdx] = '\0';
 }
 
-void HomeAssistantArduinoMQTT::setCallback(HAMQTT_CALLBACK_SIGNATURE) {
-    this->cb_callback = cb_callback;
+void HomeAssistantArduinoMQTT::setCallback(HAMQTTCallback* listener) {
+    _callbackListener = listener;
 }
 
-void HomeAssistantArduinoMQTT::begin(const char* server, const uint16_t port) {
-    begin(server, port, 1024, 15);
+void HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port) {
+    begin(client, server, port, 1024, 15);
 }
 
-void HomeAssistantArduinoMQTT::begin(const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive) {
+void HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive) {
+    _client = &client;
+    
     sanitizeID(MQTTDeviceName, _sanitizedDeviceName, sizeof(_sanitizedDeviceName));
-    snprintf_P(StatusTopic, sizeof(StatusTopic), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, FPSTR(HAKeys::AVAILABILITY));
-
-    delete wifiClient;
-    wifiClient = new WiFiClient();
+    
+    snprintf(StatusTopic, sizeof(StatusTopic), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, HAKeys::AVAILABILITY);
 
     delete mqttClient;
-    mqttClient = new PubSubClient(*wifiClient);
+    mqttClient = new PubSubClient(*_client);
     mqttClient->setBufferSize(bufferSize);
     mqttClient->setServer(server, port);
-    mqttClient->setCallback(std::bind(&HomeAssistantArduinoMQTT::MqttCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+    
+    mqttClient->setCallback([this](char* topic, byte* payload, unsigned int length) {
+        this->MqttCallback(topic, payload, length);
+    });
+    
     mqttClient->setKeepAlive(keepAlive);
 }
 
@@ -144,13 +148,13 @@ void HomeAssistantArduinoMQTT::connect() {
         }
 
         if (_readValuesEnabled) {
-            snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", FPSTR(HAKeys::TOPIC_STATE));
+            snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", HAKeys::TOPIC_STATE);
             mqttClient->subscribe(_sharedTopicBuffer);
         }
 
         for (int i = 0; i < maxEntityNum; i++) {
             if (values[i].isConfigured) {
-                snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, FPSTR(HAKeys::TOPIC_COMMAND));
+                snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::TOPIC_COMMAND);
                 mqttClient->subscribe(_sharedTopicBuffer);
             }
         }
@@ -220,8 +224,8 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
     }
 
     char configTopic[112];
-    snprintf_P(configTopic, sizeof(configTopic), HAKeys::TOPIC_5_PH,
-               FPSTR(HAKeys::PREFIX), type, _sanitizedDeviceName, entityId, FPSTR(HAKeys::TOPIC_CONFIG));
+    snprintf(configTopic, sizeof(configTopic), HAKeys::TOPIC_5_PH,
+               HAKeys::PREFIX, type, _sanitizedDeviceName, entityId, HAKeys::TOPIC_CONFIG);
 
     JsonArray availArray = doc[HAKeys::AVAILABILITY].to<JsonArray>();
 
@@ -233,7 +237,7 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
     if (independentAvailability) {
         JsonObject indAvailObj = availArray.add<JsonObject>();
         char indAvailTopic[80];
-        snprintf_P(indAvailTopic, sizeof(indAvailTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::AVAILABILITY));
+        snprintf(indAvailTopic, sizeof(indAvailTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, HAKeys::AVAILABILITY);
         indAvailObj[HAKeys::TOPIC] = indAvailTopic;
     }
 
@@ -249,7 +253,7 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
 
     char uniqueId[72];
     if (prefixUniqueIds) {
-        snprintf_P(uniqueId, sizeof(uniqueId), PSTR("%s_%s"), _sanitizedDeviceName, entityId);
+        snprintf(uniqueId, sizeof(uniqueId), "%s_%s", _sanitizedDeviceName, entityId);
     } else {
         snprintf(uniqueId, sizeof(uniqueId), "%s", entityId);
     }
@@ -259,13 +263,13 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
     char cmdTopic[80] = {0};
     if (commandTopic) {
         const char* cmdName = (commandTopicName && strlen(commandTopicName) > 0) ? commandTopicName : entityId;
-        snprintf_P(cmdTopic, sizeof(cmdTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, cmdName, FPSTR(HAKeys::TOPIC_COMMAND));
+        snprintf(cmdTopic, sizeof(cmdTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, cmdName, HAKeys::TOPIC_COMMAND);
         doc[HAKeys::COMMAND_TOPIC] = cmdTopic;
     }
 
     if (stateTopic) {
         char statTopic[80];
-        snprintf_P(statTopic, sizeof(statTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, FPSTR(HAKeys::TOPIC_STATE));
+        snprintf(statTopic, sizeof(statTopic), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, entityId, HAKeys::TOPIC_STATE);
         doc[HAKeys::STATE_TOPIC] = statTopic;
     }
 
@@ -306,7 +310,7 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
 void HomeAssistantArduinoMQTT::clearSetTopic(const char* item) {
     char sanitizedItem[32];
     sanitizeID(item, sanitizedItem, sizeof(sanitizedItem));
-    snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, FPSTR(HAKeys::TOPIC_COMMAND));
+    snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, HAKeys::TOPIC_COMMAND);
     mqttClient->publish(_sharedTopicBuffer, "", false);
 }
 
@@ -379,7 +383,7 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
             }
         }
 
-        snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, FPSTR(HAKeys::AVAILABILITY));
+        snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, HAKeys::AVAILABILITY);
         const char* payload = isAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
 
         if (mqttClient->publish(_sharedTopicBuffer, payload, true)) {
@@ -391,7 +395,7 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
 void HomeAssistantArduinoMQTT::readValues() {
     _readValuesEnabled = true;
     if (mqttClient->connected()) {
-        snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", FPSTR(HAKeys::TOPIC_STATE));
+        snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", HAKeys::TOPIC_STATE);
         mqttClient->subscribe(_sharedTopicBuffer);
     }
 }
@@ -400,7 +404,7 @@ void HomeAssistantArduinoMQTT::sendValues() {
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0') {
             if (_forcePublishAll) {
-                snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, FPSTR(HAKeys::AVAILABILITY));
+                snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::AVAILABILITY);
                 const char* payload = values[i].lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
                 mqttClient->publish(_sharedTopicBuffer, payload, true);
             }
@@ -409,7 +413,7 @@ void HomeAssistantArduinoMQTT::sendValues() {
                 continue;
             }
 
-            snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, FPSTR(HAKeys::TOPIC_STATE));
+            snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::TOPIC_STATE);
 
             if (mqttClient->publish(_sharedTopicBuffer, values[i].value, true)) {
                 values[i].isFirstValue = 0;
@@ -430,7 +434,7 @@ void HomeAssistantArduinoMQTT::sendValue(const char* item) {
                 return;
             }
 
-            snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, FPSTR(HAKeys::TOPIC_STATE));
+            snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, sanitizedItem, HAKeys::TOPIC_STATE);
             if (mqttClient->publish(_sharedTopicBuffer, values[i].value, true)) {
                 values[i].isFirstValue = 0;
                 values[i].valueChanged = 0;
@@ -441,13 +445,13 @@ void HomeAssistantArduinoMQTT::sendValue(const char* item) {
 }
 
 void HomeAssistantArduinoMQTT::sendCommand(const char* commandTopic, const char* payload) {
-    snprintf_P(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, commandTopic);
+    snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_3_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, commandTopic);
     mqttClient->publish(_sharedTopicBuffer, payload, false);
 }
 
 void HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* eventType) {
     char payload[64];
-    snprintf_P(payload, sizeof(payload), PSTR("{\"event_type\":\"%s\"}"), eventType);
+    snprintf(payload, sizeof(payload), "{\"event_type\":\"%s\"}", eventType);
     sendCommand(eventName, payload);
 }
 
@@ -478,10 +482,10 @@ void HomeAssistantArduinoMQTT::MqttCallback(char* topic, byte* payload, unsigned
                     const char* action = lastSlash + 1;
 
                     if (strcmp(action, HAKeys::TOPIC_COMMAND) == 0) {
-                        if (cb_callback != nullptr) cb_callback(item, cPayload, false);
+                        if (_callbackListener != nullptr) _callbackListener->onMQTTMessage(item, cPayload, false);
                     } else if (strcmp(action, HAKeys::TOPIC_STATE) == 0) {
                         setValue(item, cPayload);
-                        if (cb_callback != nullptr) cb_callback(item, cPayload, true);
+                        if (_callbackListener != nullptr) _callbackListener->onMQTTMessage(item, cPayload, true);
                     }
                 }
             }

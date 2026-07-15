@@ -3,21 +3,14 @@
 #include "Arduino.h"
 #include "ArduinoJson.h"
 #include "PubSubClient.h"
+#include <Client.h> 
 
-#ifdef ESP8266
-#include "ESP8266WiFi.h"
-#endif
-
-#ifdef ESP32
-#include "WiFi.h"
-#endif
-
-#if defined(ESP8266) || defined(ESP32)
-#include <functional>
-#define HAMQTT_CALLBACK_SIGNATURE std::function<void(const char*, const char*, bool)> cb_callback
-#else
-#define HAMQTT_CALLBACK_SIGNATURE void (*cb_callback)(const char*, const char*, bool)
-#endif
+class HAMQTTCallback {
+    public:
+        virtual void onMQTTMessage(const char* item, const char* value, bool isState) = 0;
+    protected:
+        ~HAMQTTCallback() {}
+};
 
 struct ItemValue {
         char item[32]; 
@@ -30,51 +23,51 @@ struct ItemValue {
 };
 
 namespace HAKeys {
-extern const char AVAILABILITY[] PROGMEM;
-extern const char TOPIC[] PROGMEM;
-extern const char DEVICE[] PROGMEM;
-extern const char IDENTIFIERS[] PROGMEM;
-extern const char MANUFACTURER[] PROGMEM;
-extern const char CONFIGURATION_URL[] PROGMEM;
-extern const char MODEL[] PROGMEM;
-extern const char NAME[] PROGMEM;
-extern const char SW_VERSION[] PROGMEM;
-extern const char UNIQUE_ID[] PROGMEM;
-extern const char ENABLED_DEFAULT[] PROGMEM;
-extern const char COMMAND_TOPIC[] PROGMEM;
-extern const char STATE_TOPIC[] PROGMEM;
-extern const char ENTITY_CATEGORY[] PROGMEM;
-extern const char DEVICE_CLASS[] PROGMEM;
-extern const char STATE_CLASS[] PROGMEM;
-extern const char ICON[] PROGMEM;
-extern const char UNIT_OF_MEASUREMENT[] PROGMEM;
+extern const char AVAILABILITY[];
+extern const char TOPIC[];
+extern const char DEVICE[];
+extern const char IDENTIFIERS[];
+extern const char MANUFACTURER[];
+extern const char CONFIGURATION_URL[];
+extern const char MODEL[];
+extern const char NAME[];
+extern const char SW_VERSION[];
+extern const char UNIQUE_ID[];
+extern const char ENABLED_DEFAULT[];
+extern const char COMMAND_TOPIC[];
+extern const char STATE_TOPIC[];
+extern const char ENTITY_CATEGORY[];
+extern const char DEVICE_CLASS[];
+extern const char STATE_CLASS[];
+extern const char ICON[];
+extern const char UNIT_OF_MEASUREMENT[];
 
-extern const char TYPE_SENSOR[] PROGMEM;
-extern const char TYPE_BINARY_SENSOR[] PROGMEM;
-extern const char TYPE_SWITCH[] PROGMEM;
-extern const char TYPE_BUTTON[] PROGMEM;
-extern const char TYPE_NUMBER[] PROGMEM;
-extern const char TYPE_SELECT[] PROGMEM;
+extern const char TYPE_SENSOR[];
+extern const char TYPE_BINARY_SENSOR[];
+extern const char TYPE_SWITCH[];
+extern const char TYPE_BUTTON[];
+extern const char TYPE_NUMBER[];
+extern const char TYPE_SELECT[];
 
-extern const char PAYLOAD_ON[] PROGMEM;
-extern const char PAYLOAD_OFF[] PROGMEM;
-extern const char PAYLOAD_PRESS[] PROGMEM;
+extern const char PAYLOAD_ON[];
+extern const char PAYLOAD_OFF[];
+extern const char PAYLOAD_PRESS[];
 
-extern const char VAL_TRUE[] PROGMEM;
-extern const char VAL_FALSE[] PROGMEM;
-extern const char VAL_PRESS[] PROGMEM;
+extern const char VAL_TRUE[];
+extern const char VAL_FALSE[];
+extern const char VAL_PRESS[];
 
-extern const char PREFIX[] PROGMEM;
-extern const char ONLINE_PAYLOAD[] PROGMEM;
-extern const char OFFLINE_PAYLOAD[] PROGMEM;
+extern const char PREFIX[];
+extern const char ONLINE_PAYLOAD[];
+extern const char OFFLINE_PAYLOAD[];
 
-extern const char TOPIC_CONFIG[] PROGMEM;
-extern const char TOPIC_STATE[] PROGMEM;
-extern const char TOPIC_COMMAND[] PROGMEM;
+extern const char TOPIC_CONFIG[];
+extern const char TOPIC_STATE[];
+extern const char TOPIC_COMMAND[];
 
-extern const char TOPIC_3_PH[] PROGMEM;
-extern const char TOPIC_4_PH[] PROGMEM;
-extern const char TOPIC_5_PH[] PROGMEM;
+extern const char TOPIC_3_PH[];
+extern const char TOPIC_4_PH[];
+extern const char TOPIC_5_PH[];
 }  // namespace HAKeys
 
 class HAEntityBuilder;
@@ -83,21 +76,21 @@ class HomeAssistantArduinoMQTT {
         friend class HAEntityBuilder;
 
     private:
-        WiFiClient* wifiClient;
+        Client* _client; 
         PubSubClient* mqttClient;
 
         char StatusTopic[64];           
         char _sanitizedDeviceName[32];  
-        
         char _sharedTopicBuffer[80];
 
         ItemValue* values;
+        
+        HAMQTTCallback* _callbackListener; 
 
         void connect();
         void publishConfig(const char* type, const char* id, const char* name, JsonDocument& doc, bool commandTopic, bool stateTopic, const char* commandTopicName, const char* startupValue, bool independentAvailability);
         void MqttCallback(char* topic, byte* payload, unsigned int length);
 
-        HAMQTT_CALLBACK_SIGNATURE;
         uint8_t maxEntityNum;
 
         bool _forcePublishAll = false;
@@ -125,10 +118,10 @@ class HomeAssistantArduinoMQTT {
 
         void sanitizeID(const char* input, char* output, size_t maxLen);
 
-        void begin(const char* server, const uint16_t port);
-        void begin(const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
+        void begin(Client& client, const char* server, const uint16_t port);
+        void begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
+        
         void loop();
-
         bool connected();
         void readValues();
         void sendValues();
@@ -136,7 +129,8 @@ class HomeAssistantArduinoMQTT {
         void sendValue(const char* item);
         void sendCommand(const char* commandTopic, const char* payload);
         void sendEvent(const char* eventName, const char* eventType);
-        void setCallback(HAMQTT_CALLBACK_SIGNATURE);
+        
+        void setCallback(HAMQTTCallback* listener);
 
         void setValue(const char* item, const char* value);
         const char* getValue(const char* item);
