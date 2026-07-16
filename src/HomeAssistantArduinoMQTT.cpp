@@ -155,7 +155,7 @@ void HomeAssistantArduinoMQTT::connect() {
         if (useSharedAvailability) {
             mqttClient->publish(StatusTopic, HAKeys::ONLINE_PAYLOAD, true);
         }
-
+        
         if (_readValuesEnabled) {
             snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", HAKeys::TOPIC_STATE);
             mqttClient->subscribe(_sharedTopicBuffer);
@@ -175,48 +175,55 @@ bool HomeAssistantArduinoMQTT::connected() {
 HAEntityBuilder HomeAssistantArduinoMQTT::newEntity(const char* type, const char* id, const char* name) {
     return HAEntityBuilder(this, type, id, name);
 }
-
 HAEntityBuilder HomeAssistantArduinoMQTT::newSensorEntity(const char* id, const char* name) {
-    return newEntity(HAKeys::TYPE_SENSOR, id, name).state(true).independentAvailability(true);
+    HAEntityBuilder builder = newEntity(HAKeys::TYPE_SENSOR, id, name);
+    builder.state(true);
+    builder.independentAvailability(true);
+    return builder;
 }
 
 HAEntityBuilder HomeAssistantArduinoMQTT::newBinarySensorEntity(const char* id, const char* name) {
-    return newEntity(HAKeys::TYPE_BINARY_SENSOR, id, name)
-        .independentAvailability(true)
-        .state(true)
-        .set(HAKeys::PAYLOAD_ON, HAKeys::VAL_TRUE)
-        .set(HAKeys::PAYLOAD_OFF, HAKeys::VAL_FALSE);
+    HAEntityBuilder builder = newEntity(HAKeys::TYPE_BINARY_SENSOR, id, name);
+    builder.independentAvailability(true);
+    builder.state(true);
+    builder.set(HAKeys::PAYLOAD_ON, HAKeys::VAL_TRUE);
+    builder.set(HAKeys::PAYLOAD_OFF, HAKeys::VAL_FALSE);
+    return builder;
 }
 
 HAEntityBuilder HomeAssistantArduinoMQTT::newSwitchEntity(const char* id, const char* name) {
-    return newEntity(HAKeys::TYPE_SWITCH, id, name)
-        .independentAvailability(true)
-        .command(true)
-        .state(true)
-        .set(HAKeys::PAYLOAD_ON, HAKeys::VAL_TRUE)
-        .set(HAKeys::PAYLOAD_OFF, HAKeys::VAL_FALSE);
+    HAEntityBuilder builder = newEntity(HAKeys::TYPE_SWITCH, id, name);
+    builder.independentAvailability(true);
+    builder.command(true);
+    builder.state(true);
+    builder.set(HAKeys::PAYLOAD_ON, HAKeys::VAL_TRUE);
+    builder.set(HAKeys::PAYLOAD_OFF, HAKeys::VAL_FALSE);
+    return builder;
 }
 
 HAEntityBuilder HomeAssistantArduinoMQTT::newButtonEntity(const char* id, const char* name) {
-    return newEntity(HAKeys::TYPE_BUTTON, id, name)
-        .independentAvailability(true)
-        .command(true)
-        .state(false)
-        .set(HAKeys::PAYLOAD_PRESS, HAKeys::VAL_PRESS);
+    HAEntityBuilder builder = newEntity(HAKeys::TYPE_BUTTON, id, name);
+    builder.independentAvailability(true);
+    builder.command(true);
+    builder.state(false);
+    builder.set(HAKeys::PAYLOAD_PRESS, HAKeys::VAL_PRESS);
+    return builder;
 }
 
 HAEntityBuilder HomeAssistantArduinoMQTT::newNumberEntity(const char* id, const char* name) {
-    return newEntity(HAKeys::TYPE_NUMBER, id, name)
-        .independentAvailability(true)
-        .command(true)
-        .state(true);
+    HAEntityBuilder builder = newEntity(HAKeys::TYPE_NUMBER, id, name);
+    builder.independentAvailability(true);
+    builder.command(true);
+    builder.state(true);
+    return builder;
 }
 
 HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(const char* id, const char* name) {
-    return newEntity(HAKeys::TYPE_SELECT, id, name)
-        .independentAvailability(true)
-        .command(true)
-        .state(true);
+    HAEntityBuilder builder = newEntity(HAKeys::TYPE_SELECT, id, name);
+    builder.independentAvailability(true);
+    builder.command(true);
+    builder.state(true);
+    return builder;
 }
 
 void HomeAssistantArduinoMQTT::publishConfig(
@@ -531,51 +538,41 @@ void HomeAssistantArduinoMQTT::MqttCallback(char* topic, byte* payload, unsigned
 HAEntityBuilder::HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name)
     : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _suggestedPrecision(0), _commandTopic(false), _stateTopic(true), _indAvail(false), _suggestedPrecisionEnable(false) {}
 
-HAEntityBuilder& HAEntityBuilder::category(const char* val) {
+void HAEntityBuilder::category(const char* val) {
     _doc[HAKeys::ENTITY_CATEGORY] = val;
-    return *this;
 }
-HAEntityBuilder& HAEntityBuilder::deviceClass(const char* val) {
+void HAEntityBuilder::deviceClass(const char* val) {
     _doc[HAKeys::DEVICE_CLASS] = val;
-    return *this;
 }
-HAEntityBuilder& HAEntityBuilder::stateClass(const char* val) {
+void HAEntityBuilder::stateClass(const char* val) {
     _doc[HAKeys::STATE_CLASS] = val;
-    return *this;
 }
-HAEntityBuilder& HAEntityBuilder::icon(const char* val) {
+void HAEntityBuilder::icon(const char* val) {
     _doc[HAKeys::ICON] = val;
-    return *this;
 }
-HAEntityBuilder& HAEntityBuilder::unit(const char* val) {
+void HAEntityBuilder::unit(const char* val) {
     _doc[HAKeys::UNIT_OF_MEASUREMENT] = val;
-    return *this;
 }
-HAEntityBuilder& HAEntityBuilder::startup(const char* val) {
+void HAEntityBuilder::startup(const char* val) {
     _startupValue = val;
-    return *this;
 }
 
-HAEntityBuilder& HAEntityBuilder::command(bool enable, const char* customName) {
+void HAEntityBuilder::command(bool enable, const char* customName) {
     _commandTopic = enable;
     _commandTopicName = customName;
-    return *this;
 }
 
-HAEntityBuilder& HAEntityBuilder::state(bool enable) {
+void HAEntityBuilder::state(bool enable) {
     _stateTopic = enable;
-    return *this;
 }
 
-HAEntityBuilder& HAEntityBuilder::independentAvailability(bool enable) {
+void HAEntityBuilder::independentAvailability(bool enable) {
     _indAvail = enable;
-    return *this;
 }
 
-HAEntityBuilder& HAEntityBuilder::suggestedDisplayPrecision(uint8_t precision) {
+void HAEntityBuilder::suggestedDisplayPrecision(uint8_t precision) {
     _suggestedPrecision = precision;
     _suggestedPrecisionEnable = true;
-    return *this;
 }
 
 void HAEntityBuilder::publish() {

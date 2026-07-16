@@ -204,20 +204,19 @@ class HAEntityBuilder {
     public:
         HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name);
 
-        HAEntityBuilder& category(const char* val);
-        HAEntityBuilder& deviceClass(const char* val);
-        HAEntityBuilder& stateClass(const char* val);
-        HAEntityBuilder& icon(const char* val);
-        HAEntityBuilder& unit(const char* val);
-        HAEntityBuilder& command(bool enable, const char* customName = nullptr);
-        HAEntityBuilder& state(bool enable);
-        HAEntityBuilder& startup(const char* val);
-        HAEntityBuilder& independentAvailability(bool enable = true);
-        HAEntityBuilder& suggestedDisplayPrecision(uint8_t precision); 
+        void category(const char* val);
+        void deviceClass(const char* val);
+        void stateClass(const char* val);
+        void icon(const char* val);
+        void unit(const char* val);
+        void command(bool enable, const char* customName = nullptr);
+        void state(bool enable);
+        void startup(const char* val);
+        void independentAvailability(bool enable = true);
+        void suggestedDisplayPrecision(uint8_t precision); 
         template <typename T>
-        HAEntityBuilder& set(const char* key, T value) {
+        void set(const char* key, T value) {
             _doc[key] = value;
-            return *this;
         }
 
         void publish();
