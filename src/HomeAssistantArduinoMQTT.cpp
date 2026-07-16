@@ -66,7 +66,6 @@ HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     _forcePublishAll = true;
     _lastReconnectAttempt = 0;
     _readValuesEnabled = false;
-    _commandEnabled = true;
 }
 
 HomeAssistantArduinoMQTT::~HomeAssistantArduinoMQTT() {
@@ -153,7 +152,7 @@ void HomeAssistantArduinoMQTT::connect() {
             mqttClient->subscribe(_sharedTopicBuffer);
         }
 
-        if(_commandEnabled){
+        if(commandEnabled){
             snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", HAKeys::TOPIC_COMMAND);
             mqttClient->subscribe(_sharedTopicBuffer);
         }
@@ -464,7 +463,7 @@ void HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* even
 }
 
 void HomeAssistantArduinoMQTT::MqttCallback(char* topic, byte* payload, unsigned int length) {
-    if(_commandEnabled){
+    if(commandEnabled){
         return;
     }
     char cPayload[64]; 
