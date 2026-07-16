@@ -66,6 +66,7 @@ HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     _forcePublishAll = true;
     _lastReconnectAttempt = 0;
     _readValuesEnabled = false;
+    _commandEnabled = true;
 }
 
 HomeAssistantArduinoMQTT::~HomeAssistantArduinoMQTT() {
@@ -152,12 +153,19 @@ void HomeAssistantArduinoMQTT::connect() {
             mqttClient->subscribe(_sharedTopicBuffer);
         }
 
+        if(_commandEnabled){
+            snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", HAKeys::TOPIC_COMMAND);
+            mqttClient->subscribe(_sharedTopicBuffer);
+        }
+        
+        /*
         for (int i = 0; i < maxEntityNum; i++) {
             if (values[i].isConfigured) {
                 snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::TOPIC_COMMAND);
                 mqttClient->subscribe(_sharedTopicBuffer);
             }
         }
+        */
     }
 }
 
@@ -298,7 +306,7 @@ void HomeAssistantArduinoMQTT::publishConfig(const char* type, const char* id, c
                 mqttClient->endPublish();
             }
         }
-        if (commandTopic && cmdTopic[0] != '\0') mqttClient->subscribe(cmdTopic);
+        //if (commandTopic && cmdTopic[0] != '\0') mqttClient->subscribe(cmdTopic);
     }
 
     if (independentAvailability) setEntityAvailability(entityId, true);
@@ -456,6 +464,9 @@ void HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* even
 }
 
 void HomeAssistantArduinoMQTT::MqttCallback(char* topic, byte* payload, unsigned int length) {
+    if(_commandEnabled){
+        return;
+    }
     char cPayload[64]; 
     unsigned int copyLen = (length < sizeof(cPayload) - 1) ? length : (sizeof(cPayload) - 1);
     memcpy(cPayload, payload, copyLen);
