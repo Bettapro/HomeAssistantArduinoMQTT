@@ -6,6 +6,30 @@
 #include "ArduinoJson.h"
 #include "PubSubClient.h"
 
+#define HAAM_FORMAT_BOOL(buf, val) \
+    HAAM_FORMAT_BOOL_SIZE(buf, sizeof(buf), val)
+
+#define HAAM_FORMAT_BOOL_SIZE(buf, size, val) \
+    snprintf(buf, size, "%s", (val) ? HAKeys::VAL_TRUE : HAKeys::VAL_FALSE)
+
+#define HAAM_FORMAT_UINT(buf, val) \
+    HAAM_FORMAT_UINT_SIZE(buf, sizeof(buf), val)
+
+#define HAAM_FORMAT_UINT_SIZE(buf, size, val) \
+    snprintf(buf, size, "%lu", (unsigned long)(val))
+
+#define HAAM_FORMAT_FLOAT(buf, val, dec) \
+    HAAM_FORMAT_FLOAT_SIZE(buf, sizeof(buf), val, dec)
+
+#define HAAM_FORMAT_FLOAT_SIZE(buf, size, val, dec) \
+    snprintf(buf, size, "%.*f", (int)(dec), (double)(val))
+
+#define HAAM_FORMAT_STR(buf, val) \
+    HAAM_FORMAT_STR_SIZE(buf, sizeof(buf), val)
+
+#define HAAM_FORMAT_STR_SIZE(buf, size, val) \
+    snprintf(buf, size, "%s", (const char*)(val))
+
 class HAMQTTCallback {
     public:
         virtual void onMQTTMessage(const char* item, const char* value, bool isState) = 0;
@@ -22,6 +46,7 @@ struct ItemValue {
         uint8_t isFirstValue : 1;
         uint8_t valueChanged : 1;
         uint8_t isConfigured : 1;
+        uint8_t availabilitySent : 1;
 };
 
 namespace HAKeys {
@@ -102,12 +127,11 @@ class HomeAssistantArduinoMQTT {
             const char* startupValue,
             bool independentAvailability,
             bool precisionEnable,
-            uitn8_t precision);
+            uint8_t precision); 
         void MqttCallback(char* topic, byte* payload, unsigned int length);
 
         uint8_t maxEntityNum;
 
-        bool _forcePublishAll = false;
         unsigned long _lastReconnectAttempt = 0;
         bool _readValuesEnabled = false;
 
@@ -126,6 +150,7 @@ class HomeAssistantArduinoMQTT {
         bool useSharedAvailability = true;
         bool prefixUniqueIds = true;
         bool enableConfigPublishing = true;
+        bool commandEnabled = true;
 
         HomeAssistantArduinoMQTT(uint8_t maxEntityNum = 24);
         ~HomeAssistantArduinoMQTT();
@@ -188,8 +213,7 @@ class HAEntityBuilder {
         HAEntityBuilder& state(bool enable);
         HAEntityBuilder& startup(const char* val);
         HAEntityBuilder& independentAvailability(bool enable = true);
-        HAEntityBuilder& suggestedDisplayPrecisione(uint8_t precision);
-
+        HAEntityBuilder& suggestedDisplayPrecision(uint8_t precision); 
         template <typename T>
         HAEntityBuilder& set(const char* key, T value) {
             _doc[key] = value;
