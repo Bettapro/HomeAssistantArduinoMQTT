@@ -5,6 +5,30 @@
 #include "PubSubClient.h"
 #include <Client.h> 
 
+#define HAAM_FORMAT_BOOL(buf, val) \
+    HAAM_FORMAT_BOOL_SIZE(buf, sizeof(buf), val)
+
+#define HAAM_FORMAT_BOOL_SIZE(buf, size, val) \
+    snprintf(buf, size, "%s", (val) ? HAKeys::VAL_TRUE : HAKeys::VAL_FALSE)
+
+#define HAAM_FORMAT_UINT(buf, val) \
+    HAAM_FORMAT_UINT_SIZE(buf, sizeof(buf), val)
+
+#define HAAM_FORMAT_UINT_SIZE(buf, size, val) \
+    snprintf(buf, size, "%llu", (unsigned long long)(val))
+
+#define HAAM_FORMAT_FLOAT(buf, val, dec) \
+    HAAM_FORMAT_FLOAT_SIZE(buf, sizeof(buf), val, dec)
+
+#define HAAM_FORMAT_FLOAT_SIZE(buf, size, val, dec) \
+    snprintf(buf, size, "%.*f", (int)(dec), (double)(val))
+
+#define HAAM_FORMAT_STR(buf, val) \
+    HAAM_FORMAT_STR_SIZE(buf, sizeof(buf), val)
+
+#define HAAM_FORMAT_STR_SIZE(buf, size, val) \
+    snprintf(buf, size, "%s", (const char*)(val))
+
 class HAMQTTCallback {
     public:
         virtual void onMQTTMessage(const char* item, const char* value, bool isState) = 0;
