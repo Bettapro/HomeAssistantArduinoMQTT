@@ -1,19 +1,21 @@
 #pragma once
 
+#include <Client.h>
+
 #include "Arduino.h"
 #include "ArduinoJson.h"
 #include "PubSubClient.h"
-#include <Client.h> 
 
 class HAMQTTCallback {
     public:
         virtual void onMQTTMessage(const char* item, const char* value, bool isState) = 0;
+
     protected:
         ~HAMQTTCallback() {}
 };
 
 struct ItemValue {
-        char item[32]; 
+        char item[32];
         char value[16];
 
         uint8_t lastAvailable : 1;
@@ -41,6 +43,7 @@ extern const char DEVICE_CLASS[];
 extern const char STATE_CLASS[];
 extern const char ICON[];
 extern const char UNIT_OF_MEASUREMENT[];
+extern const char SUGGESTED_DISPLAY_PRECISION[];
 
 extern const char TYPE_SENSOR[];
 extern const char TYPE_BINARY_SENSOR[];
@@ -76,26 +79,37 @@ class HomeAssistantArduinoMQTT {
         friend class HAEntityBuilder;
 
     private:
-        Client* _client; 
+        Client* _client;
         PubSubClient* mqttClient;
 
-        char StatusTopic[64];           
-        char _sanitizedDeviceName[32];  
+        char StatusTopic[64];
+        char _sanitizedDeviceName[32];
         char _sharedTopicBuffer[80];
 
         ItemValue* values;
-        
-        HAMQTTCallback* _callbackListener; 
+
+        HAMQTTCallback* _callbackListener;
 
         void connect();
-        void publishConfig(const char* type, const char* id, const char* name, JsonDocument& doc, bool commandTopic, bool stateTopic, const char* commandTopicName, const char* startupValue, bool independentAvailability);
+        void publishConfig(
+            const char* type,
+            const char* id,
+            const char* name,
+            JsonDocument& doc,
+            bool commandTopic,
+            bool stateTopic,
+            const char* commandTopicName,
+            const char* startupValue,
+            bool independentAvailability,
+            bool precisionEnable,
+            uitn8_t precision);
         void MqttCallback(char* topic, byte* payload, unsigned int length);
 
         uint8_t maxEntityNum;
 
         bool _forcePublishAll = false;
-        unsigned long _lastReconnectAttempt = 0; 
-        bool _readValuesEnabled = false; 
+        unsigned long _lastReconnectAttempt = 0;
+        bool _readValuesEnabled = false;
 
     public:
         const char* MqttUser = "";
@@ -120,7 +134,7 @@ class HomeAssistantArduinoMQTT {
 
         void begin(Client& client, const char* server, const uint16_t port);
         void begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
-        
+
         void loop();
         bool connected();
         void readValues();
@@ -129,7 +143,7 @@ class HomeAssistantArduinoMQTT {
         void sendValue(const char* item);
         void sendCommand(const char* commandTopic, const char* payload);
         void sendEvent(const char* eventName, const char* eventType);
-        
+
         void setCallback(HAMQTTCallback* listener);
 
         void setValue(const char* item, const char* value);
@@ -156,9 +170,11 @@ class HAEntityBuilder {
         const char* _id;
         const char* _commandTopicName;
         const char* _startupValue;
+        uint8_t _suggestedPrecision;
         bool _commandTopic;
         bool _stateTopic;
         bool _indAvail;
+        bool _suggestedPrecisionEnable;
 
     public:
         HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name);
@@ -172,6 +188,7 @@ class HAEntityBuilder {
         HAEntityBuilder& state(bool enable);
         HAEntityBuilder& startup(const char* val);
         HAEntityBuilder& independentAvailability(bool enable = true);
+        HAEntityBuilder& suggestedDisplayPrecisione(uint8_t precision);
 
         template <typename T>
         HAEntityBuilder& set(const char* key, T value) {
