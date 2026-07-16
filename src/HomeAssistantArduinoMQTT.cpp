@@ -148,7 +148,7 @@ void HomeAssistantArduinoMQTT::connect() {
         for (int i = 0; i < maxEntityNum; i++) {
             if (values[i].item[0] != '\0') {
                 values[i].valueChanged = 1;
-                values[i].availabilitySent = 0; 
+                values[i].availabilitySent = 0;
             }
         }
 
@@ -317,9 +317,11 @@ void HomeAssistantArduinoMQTT::publishConfig(
         values[slot].isConfigured = 1;
     }
 
-    if (independentAvailability) setEntityAvailability(entityId, true);
-    
-    if (stateTopic && startupValue && strlen(startupValue) > 0) {
+    bool hasValue = stateTopic && startupValue && strlen(startupValue) > 0;
+
+    if (independentAvailability) setEntityAvailability(entityId, hasValue);
+
+    if (hasValue) {
         setValue(entityId, startupValue);
     }
 }
@@ -398,11 +400,11 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
             values[targetIndex].item[sizeof(values[targetIndex].item) - 1] = '\0';
             values[targetIndex].value[0] = '\0';
             values[targetIndex].lastAvailable = isAvailable ? 1 : 0;
-            values[targetIndex].availabilitySent = 0; 
+            values[targetIndex].availabilitySent = 0;
         } else {
             if (previousAvailable != isAvailable) {
                 values[targetIndex].lastAvailable = isAvailable ? 1 : 0;
-                values[targetIndex].availabilitySent = 0; 
+                values[targetIndex].availabilitySent = 0;
             }
         }
     }
@@ -421,7 +423,7 @@ void HomeAssistantArduinoMQTT::sendValues() {
 
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0') {
-            
+
             if (!values[i].availabilitySent) {
                 snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::AVAILABILITY);
                 const char* payload = values[i].lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
@@ -435,7 +437,6 @@ void HomeAssistantArduinoMQTT::sendValues() {
             }
 
             snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::TOPIC_STATE);
-
             if (mqttClient->publish(_sharedTopicBuffer, values[i].value, true)) {
                 values[i].isFirstValue = 0;
                 values[i].valueChanged = 0;
@@ -452,7 +453,6 @@ void HomeAssistantArduinoMQTT::sendValue(const char* item) {
 
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0' && strcmp(values[i].item, sanitizedItem) == 0) {
-            
             if (!values[i].availabilitySent) {
                 snprintf(_sharedTopicBuffer, sizeof(_sharedTopicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::AVAILABILITY);
                 const char* payload = values[i].lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
