@@ -112,6 +112,7 @@ class HomeAssistantArduinoMQTT {
         bool useSharedAvailability = true;
         bool prefixUniqueIds = true;
         bool enableConfigPublishing = true;
+        bool commandEnabled = true;
 
         HomeAssistantArduinoMQTT(uint8_t maxEntityNum = 24);
         ~HomeAssistantArduinoMQTT();
