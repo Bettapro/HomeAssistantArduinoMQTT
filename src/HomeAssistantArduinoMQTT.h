@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Client.h>
-
 #include "Arduino.h"
 #include "ArduinoJson.h"
 #include "PubSubClient.h"
@@ -32,10 +31,8 @@
 
 class HAMQTTCallback {
     public:
+        virtual ~HAMQTTCallback() = default;
         virtual void onMQTTMessage(const char* item, const char* value, bool isState) = 0;
-
-    protected:
-        ~HAMQTTCallback() {}
 };
 
 struct ItemValue {
@@ -50,53 +47,64 @@ struct ItemValue {
 };
 
 namespace HAKeys {
-extern const char AVAILABILITY[];
-extern const char TOPIC[];
-extern const char DEVICE[];
-extern const char IDENTIFIERS[];
-extern const char MANUFACTURER[];
-extern const char CONFIGURATION_URL[];
-extern const char MODEL[];
-extern const char NAME[];
-extern const char SW_VERSION[];
-extern const char UNIQUE_ID[];
-extern const char ENABLED_DEFAULT[];
-extern const char COMMAND_TOPIC[];
-extern const char STATE_TOPIC[];
-extern const char ENTITY_CATEGORY[];
-extern const char DEVICE_CLASS[];
-extern const char STATE_CLASS[];
-extern const char ICON[];
-extern const char UNIT_OF_MEASUREMENT[];
-extern const char SUGGESTED_DISPLAY_PRECISION[];
+    constexpr const char AVAILABILITY[] = "avty";
+    constexpr const char TOPIC[] = "t";
+    constexpr const char DEVICE[] = "dev";
+    constexpr const char IDENTIFIERS[] = "ids";
+    constexpr const char MANUFACTURER[] = "mf";
+    constexpr const char CONFIGURATION_URL[] = "cu";
+    constexpr const char MODEL[] = "mdl";
+    constexpr const char NAME[] = "name";
+    constexpr const char SW_VERSION[] = "sw";
+    constexpr const char UNIQUE_ID[] = "uniq_id";
+    constexpr const char ENABLED_DEFAULT[] = "en";
+    constexpr const char COMMAND_TOPIC[] = "cmd_t";
+    constexpr const char STATE_TOPIC[] = "stat_t";
+    constexpr const char ENTITY_CATEGORY[] = "ent_cat";
+    constexpr const char DEVICE_CLASS[] = "dev_cla";
+    constexpr const char STATE_CLASS[] = "stat_cla";
+    constexpr const char ICON[] = "ic";
+    constexpr const char UNIT_OF_MEASUREMENT[] = "unit_of_meas";
+    constexpr const char SUGGESTED_DISPLAY_PRECISION[] = "sug_dsp_prc";
 
-extern const char TYPE_SENSOR[];
-extern const char TYPE_BINARY_SENSOR[];
-extern const char TYPE_SWITCH[];
-extern const char TYPE_BUTTON[];
-extern const char TYPE_NUMBER[];
-extern const char TYPE_SELECT[];
+    constexpr const char AVAILABILITY_MODE[] = "avty_mode";
+    constexpr const char AVAILABILITY_MODE_ALL[] = "all";
 
-extern const char PAYLOAD_ON[];
-extern const char PAYLOAD_OFF[];
-extern const char PAYLOAD_PRESS[];
+    constexpr const char TYPE_SENSOR[] = "sensor";
+    constexpr const char TYPE_BINARY_SENSOR[] = "binary_sensor";
+    constexpr const char TYPE_SWITCH[] = "switch";
+    constexpr const char TYPE_BUTTON[] = "button";
+    constexpr const char TYPE_NUMBER[] = "number";
+    constexpr const char TYPE_SELECT[] = "select";
 
-extern const char VAL_TRUE[];
-extern const char VAL_FALSE[];
-extern const char VAL_PRESS[];
+    constexpr const char PAYLOAD_ON[] = "pl_on";
+    constexpr const char PAYLOAD_OFF[] = "pl_off";
+    constexpr const char PAYLOAD_PRESS[] = "pl_prs";
 
-extern const char PREFIX[];
-extern const char ONLINE_PAYLOAD[];
-extern const char OFFLINE_PAYLOAD[];
+    constexpr const char VAL_TRUE[] = "true";
+    constexpr const char VAL_FALSE[] = "false";
+    constexpr const char VAL_PRESS[] = "PRESS";
 
-extern const char TOPIC_CONFIG[];
-extern const char TOPIC_STATE[];
-extern const char TOPIC_COMMAND[];
+    constexpr const char PREFIX[] = "homeassistant";
+    constexpr const char ONLINE_PAYLOAD[] = "online";
+    constexpr const char OFFLINE_PAYLOAD[] = "offline";
 
-extern const char TOPIC_3_PH[];
-extern const char TOPIC_4_PH[];
-extern const char TOPIC_5_PH[];
+    constexpr const char TOPIC_CONFIG[] = "config";
+    constexpr const char TOPIC_STATE[] = "state";
+    constexpr const char TOPIC_COMMAND[] = "set";
+
+    constexpr const char TOPIC_3_PH[] = "%s/%s/%s";
+    constexpr const char TOPIC_4_PH[] = "%s/%s/%s/%s";
+    constexpr const char TOPIC_5_PH[] = "%s/%s/%s/%s/%s";
 }  // namespace HAKeys
+
+struct HACustomProp {
+    const char* key;
+    const char* valStr;
+    int valInt;
+    bool valBool;
+    uint8_t type; // 0: string, 1: int, 2: bool
+};
 
 class HAEntityBuilder;
 
@@ -109,29 +117,17 @@ class HomeAssistantArduinoMQTT {
 
         char StatusTopic[64];
         char _sanitizedDeviceName[32];
-        char _sharedTopicBuffer[80];
 
         ItemValue* values;
+        uint8_t maxEntityNum;
 
         HAMQTTCallback* _callbackListener;
 
         void connect();
-        void publishConfig(
-            const char* type,
-            const char* id,
-            const char* name,
-            JsonDocument& doc,
-            bool commandTopic,
-            bool stateTopic,
-            const char* commandTopicName,
-            const char* startupValue,
-            bool independentAvailability,
-            bool precisionEnable,
-            uint8_t precision); 
+        void publishConfig(HAEntityBuilder* builder); 
         void MqttCallback(char* topic, byte* payload, unsigned int length);
-
-        uint8_t maxEntityNum;
-
+        void _sendSingleValue(int index); 
+        
         unsigned long _lastReconnectAttempt = 0;
         bool _readValuesEnabled = false;
 
@@ -187,19 +183,30 @@ class HomeAssistantArduinoMQTT {
 };
 
 class HAEntityBuilder {
+        friend class HomeAssistantArduinoMQTT;
     private:
         HomeAssistantArduinoMQTT* _mqtt;
-        JsonDocument _doc;
+        
         const char* _type;
         const char* _name;
         const char* _id;
         const char* _commandTopicName;
         const char* _startupValue;
-        uint8_t _suggestedPrecision;
-        bool _commandTopic;
-        bool _stateTopic;
-        bool _indAvail;
-        bool _suggestedPrecisionEnable;
+        
+        const char* _category = nullptr;
+        const char* _deviceClass = nullptr;
+        const char* _stateClass = nullptr;
+        const char* _icon = nullptr;
+        const char* _unit = nullptr;
+
+        HACustomProp _customProps[6];
+        uint8_t _customPropCount = 0;
+
+        uint8_t _suggestedPrecision = 0;
+        bool _commandTopic = false;
+        bool _stateTopic = true;
+        bool _indAvail = false;
+        bool _suggestedPrecisionEnable = false;
 
     public:
         HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name);
@@ -214,10 +221,10 @@ class HAEntityBuilder {
         void startup(const char* val);
         void independentAvailability(bool enable = true);
         void suggestedDisplayPrecision(uint8_t precision); 
-        template <typename T>
-        void set(const char* key, T value) {
-            _doc[key] = value;
-        }
+        
+        void set(const char* key, const char* value);
+        void set(const char* key, int value);
+        void set(const char* key, bool value);
 
         void publish();
 };
