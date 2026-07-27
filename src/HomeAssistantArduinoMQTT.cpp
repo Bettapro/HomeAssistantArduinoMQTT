@@ -399,7 +399,7 @@ void HomeAssistantArduinoMQTT::readValues() {
     }
 }
 
-void HomeAssistantArduinoMQTT::_sendSingleValue(int i) {
+bool HomeAssistantArduinoMQTT::_sendSingleValue(int i) {
     char topicBuffer[96]; 
 
     if (!values[i].availabilitySent) {
@@ -408,41 +408,50 @@ void HomeAssistantArduinoMQTT::_sendSingleValue(int i) {
         if (mqttClient->publish(topicBuffer, payload, true)) {
             values[i].availabilitySent = 1;
         }
+        else{
+            return false;
+        }
     }
 
     if (!values[i].valueChanged && !values[i].isFirstValue) {
-        return;
+        return true;
     }
 
     snprintf(topicBuffer, sizeof(topicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::TOPIC_STATE);
     if (mqttClient->publish(topicBuffer, values[i].value, true)) {
         values[i].isFirstValue = 0;
         values[i].valueChanged = 0;
+        return true;
     }
+
+    return false;
 }
 
-void HomeAssistantArduinoMQTT::sendValues() {
-    if (!mqttClient || !mqttClient->connected()) return;
+bool HomeAssistantArduinoMQTT::sendValues() {
+    if (!mqttClient || !mqttClient->connected()) return false;
 
+    bool sent = true;
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0') {
-            _sendSingleValue(i);
+            sent &= _sendSingleValue(i);
         }
     }
+
+    return sent;
 }
 
-void HomeAssistantArduinoMQTT::sendValue(const char* item) {
-    if (!mqttClient || !mqttClient->connected()) return;
+bool HomeAssistantArduinoMQTT::sendValue(const char* item) {
+    if (!mqttClient || !mqttClient->connected()) return false;
 
     char sanitizedItem[32];
     sanitizeID(item, sanitizedItem, sizeof(sanitizedItem));
 
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0' && strcmp(values[i].item, sanitizedItem) == 0) {
-            _sendSingleValue(i);
-            break;
+            return _sendSingleValue(i);
         }
     }
+    return false;
 }
 
 void HomeAssistantArduinoMQTT::sendCommand(const char* commandTopic, const char* payload) {

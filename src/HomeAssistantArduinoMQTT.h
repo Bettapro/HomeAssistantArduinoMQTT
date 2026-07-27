@@ -126,7 +126,7 @@ class HomeAssistantArduinoMQTT {
         void connect();
         void publishConfig(HAEntityBuilder* builder); 
         void MqttCallback(char* topic, byte* payload, unsigned int length);
-        void _sendSingleValue(int index); 
+        bool _sendSingleValue(int index); 
         
         unsigned long _lastReconnectAttempt = 0;
         bool _readValuesEnabled = false;
@@ -159,9 +159,9 @@ class HomeAssistantArduinoMQTT {
         void loop();
         bool connected();
         void readValues();
-        void sendValues();
+        bool sendValues();
 
-        void sendValue(const char* item);
+        bool sendValue(const char* item);
         void sendCommand(const char* commandTopic, const char* payload);
         void sendEvent(const char* eventName, const char* eventType);
 
