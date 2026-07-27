@@ -109,7 +109,7 @@ void HomeAssistantArduinoMQTT::connect() {
             mqttClient->publish(StatusTopic, HAKeys::ONLINE_PAYLOAD, true);
         }
         
-        char topicBuffer[96]; 
+        char topicBuffer[96];
         
         if (_readValuesEnabled) {
             snprintf(topicBuffer, sizeof(topicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, "+", HAKeys::TOPIC_STATE);
@@ -271,19 +271,11 @@ void HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
             doc[HAKeys::STATE_TOPIC] = statTopic;
         }
 
-        char jsonBuffer[512]; 
-        size_t jsonLen = serializeJson(doc, jsonBuffer, sizeof(jsonBuffer));
-        
-        if (jsonLen > 0 && mqttClient) {
-            mqttClient->publish(configTopic, (const uint8_t*)jsonBuffer, jsonLen, true);
-        }
-        /* old version - slowers
         size_t jsonLen = measureJson(doc);
         if (mqttClient->beginPublish(configTopic, jsonLen, true)) {
             serializeJson(doc, *mqttClient);
             mqttClient->endPublish();
         }
-        */
     }
 
     int slot = -1;
