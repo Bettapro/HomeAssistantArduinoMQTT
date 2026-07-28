@@ -9,7 +9,7 @@
     HAAM_FORMAT_BOOL_SIZE(buf, sizeof(buf), val)
 
 #define HAAM_FORMAT_BOOL_SIZE(buf, size, val) \
-    snprintf(buf, size, "%s", (val) ? HAKeys::VAL_TRUE : HAKeys::VAL_FALSE)
+    strcpy_P(buf, (val) ? HAKeys::VAL_TRUE : HAKeys::VAL_FALSE)
 
 #define HAAM_FORMAT_UINT(buf, val) \
     HAAM_FORMAT_UINT_SIZE(buf, sizeof(buf), val)
@@ -48,55 +48,57 @@ struct ItemValue {
 };
 
 namespace HAKeys {
-    constexpr const char AVAILABILITY[] = "avty";
-    constexpr const char TOPIC[] = "t";
-    constexpr const char DEVICE[] = "dev";
-    constexpr const char IDENTIFIERS[] = "ids";
-    constexpr const char MANUFACTURER[] = "mf";
-    constexpr const char CONFIGURATION_URL[] = "cu";
-    constexpr const char MODEL[] = "mdl";
-    constexpr const char NAME[] = "name";
-    constexpr const char SW_VERSION[] = "sw";
-    constexpr const char UNIQUE_ID[] = "uniq_id";
-    constexpr const char ENABLED_DEFAULT[] = "en";
-    constexpr const char COMMAND_TOPIC[] = "cmd_t";
-    constexpr const char STATE_TOPIC[] = "stat_t";
-    constexpr const char ENTITY_CATEGORY[] = "ent_cat";
-    constexpr const char DEVICE_CLASS[] = "dev_cla";
-    constexpr const char STATE_CLASS[] = "stat_cla";
-    constexpr const char ICON[] = "ic";
-    constexpr const char UNIT_OF_MEASUREMENT[] = "unit_of_meas";
-    constexpr const char SUGGESTED_DISPLAY_PRECISION[] = "sug_dsp_prc";
+    const char VALUE_TOPIC_PREFIX[] = "haam";
 
-    constexpr const char AVAILABILITY_MODE[] = "avty_mode";
-    constexpr const char AVAILABILITY_MODE_ALL[] = "all";
+    const char AVAILABILITY[] PROGMEM = "avty";
+    const char TOPIC[] PROGMEM = "t";
+    const char DEVICE[] PROGMEM = "dev";
+    const char IDENTIFIERS[] PROGMEM = "ids";
+    const char MANUFACTURER[] PROGMEM = "mf";
+    const char CONFIGURATION_URL[] PROGMEM = "cu";
+    const char MODEL[] PROGMEM = "mdl";
+    const char NAME[] PROGMEM = "name";
+    const char SW_VERSION[] PROGMEM = "sw";
+    const char UNIQUE_ID[] PROGMEM = "uniq_id";
+    const char ENABLED_DEFAULT[] PROGMEM = "en";
+    const char COMMAND_TOPIC[] PROGMEM = "cmd_t";
+    const char STATE_TOPIC[] PROGMEM = "stat_t";
+    const char ENTITY_CATEGORY[] PROGMEM = "ent_cat";
+    const char DEVICE_CLASS[] PROGMEM = "dev_cla";
+    const char STATE_CLASS[] PROGMEM = "stat_cla";
+    const char ICON[] PROGMEM = "ic";
+    const char UNIT_OF_MEASUREMENT[] PROGMEM = "unit_of_meas";
+    const char SUGGESTED_DISPLAY_PRECISION[] PROGMEM = "sug_dsp_prc";
 
-    constexpr const char TYPE_SENSOR[] = "sensor";
-    constexpr const char TYPE_BINARY_SENSOR[] = "binary_sensor";
-    constexpr const char TYPE_SWITCH[] = "switch";
-    constexpr const char TYPE_BUTTON[] = "button";
-    constexpr const char TYPE_NUMBER[] = "number";
-    constexpr const char TYPE_SELECT[] = "select";
+    const char AVAILABILITY_MODE[] PROGMEM = "avty_mode";
+    const char AVAILABILITY_MODE_ALL[] PROGMEM = "all";
 
-    constexpr const char PAYLOAD_ON[] = "pl_on";
-    constexpr const char PAYLOAD_OFF[] = "pl_off";
-    constexpr const char PAYLOAD_PRESS[] = "pl_prs";
+    const char TYPE_SENSOR[] PROGMEM = "sensor";
+    const char TYPE_BINARY_SENSOR[] PROGMEM = "binary_sensor";
+    const char TYPE_SWITCH[] PROGMEM = "switch";
+    const char TYPE_BUTTON[] PROGMEM = "button";
+    const char TYPE_NUMBER[] PROGMEM = "number";
+    const char TYPE_SELECT[] PROGMEM = "select";
 
-    constexpr const char VAL_TRUE[] = "true";
-    constexpr const char VAL_FALSE[] = "false";
-    constexpr const char VAL_PRESS[] = "PRESS";
+    const char PAYLOAD_ON[] PROGMEM = "pl_on";
+    const char PAYLOAD_OFF[] PROGMEM = "pl_off";
+    const char PAYLOAD_PRESS[] PROGMEM = "pl_prs";
 
-    constexpr const char PREFIX[] = "homeassistant";
-    constexpr const char ONLINE_PAYLOAD[] = "online";
-    constexpr const char OFFLINE_PAYLOAD[] = "offline";
+    const char VAL_TRUE[] PROGMEM = "true";
+    const char VAL_FALSE[] PROGMEM = "false";
+    const char VAL_PRESS[] PROGMEM = "PRESS";
 
-    constexpr const char TOPIC_CONFIG[] = "config";
-    constexpr const char TOPIC_STATE[] = "state";
-    constexpr const char TOPIC_COMMAND[] = "set";
+    const char PREFIX[] PROGMEM = "homeassistant";
+    const char ONLINE_PAYLOAD[] PROGMEM = "online";
+    const char OFFLINE_PAYLOAD[] PROGMEM = "offline";
 
-    constexpr const char TOPIC_3_PH[] = "%s/%s/%s";
-    constexpr const char TOPIC_4_PH[] = "%s/%s/%s/%s";
-    constexpr const char TOPIC_5_PH[] = "%s/%s/%s/%s/%s";
+    const char TOPIC_CONFIG[] = "config";
+    const char TOPIC_STATE[] = "state";
+    const char TOPIC_COMMAND[] = "set";
+
+    const char TOPIC_3_PH[] PROGMEM = "%s/%s/%s";
+    const char TOPIC_4_PH[] PROGMEM = "%s/%s/%s/%s";
+    const char TOPIC_5_PH[] PROGMEM = "%s/%s/%s/%s/%s";
 }  // namespace HAKeys
 
 struct HACustomProp {
@@ -149,7 +151,7 @@ class HomeAssistantArduinoMQTT {
         bool enableConfigPublishing = true;
         bool commandEnabled = true;
 
-        HomeAssistantArduinoMQTT(uint8_t maxEntityNum = 24);
+        HomeAssistantArduinoMQTT(uint8_t maxEntityNum = 4);
         ~HomeAssistantArduinoMQTT();
 
         void sanitizeID(const char* input, char* output, size_t maxLen);
@@ -168,7 +170,7 @@ class HomeAssistantArduinoMQTT {
 
         void setCallback(HAMQTTCallback* listener);
 
-        void setValue(const char* item, const char* value);
+        void setValue(const char* item, const char* value, bool markAsChanged = true);
         const char* getValue(const char* item);
         void clearSetTopic(const char* item);
 
