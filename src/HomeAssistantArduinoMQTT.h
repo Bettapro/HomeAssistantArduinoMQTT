@@ -37,8 +37,9 @@ class HAMQTTCallback {
 
 struct ItemValue {
         char item[32];
-        char value[16];
+        char value[32];
 
+        uint8_t hasIndAvail : 1;
         uint8_t lastAvailable : 1;
         uint8_t isFirstValue : 1;
         uint8_t valueChanged : 1;
@@ -126,7 +127,7 @@ class HomeAssistantArduinoMQTT {
         void connect();
         void publishConfig(HAEntityBuilder* builder); 
         void MqttCallback(char* topic, byte* payload, unsigned int length);
-        bool _sendSingleValue(int index); 
+        bool _sendSingleValue(int index, bool forceSend = false); 
         
         unsigned long _lastReconnectAttempt = 0;
         bool _readValuesEnabled = false;
@@ -159,9 +160,9 @@ class HomeAssistantArduinoMQTT {
         void loop();
         bool connected();
         void readValues();
-        bool sendValues();
+        bool sendValues(bool force = false);
 
-        bool sendValue(const char* item);
+        bool sendValue(const char* item, bool force = false);
         void sendCommand(const char* commandTopic, const char* payload);
         void sendEvent(const char* eventName, const char* eventType);
 

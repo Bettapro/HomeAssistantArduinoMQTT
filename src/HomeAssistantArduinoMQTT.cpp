@@ -11,6 +11,7 @@ HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     values = new ItemValue[maxEntityNum]();
 
     for (int i = 0; i < maxEntityNum; i++) {
+        values[i].hasIndAvail = 0;
         values[i].isFirstValue = 1;
         values[i].valueChanged = 1;
         values[i].isConfigured = 0;
@@ -293,6 +294,7 @@ void HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
         strncpy(values[slot].item, entityId, sizeof(values[slot].item) - 1);
         values[slot].item[sizeof(values[slot].item) - 1] = '\0';
         values[slot].isConfigured = 1;
+        values[slot].hasIndAvail = builder->_indAvail ? 1 : 0
     }
 
     bool hasValue = builder->_stateTopic && builder->_startupValue && strlen(builder->_startupValue) > 0;
@@ -399,10 +401,10 @@ void HomeAssistantArduinoMQTT::readValues() {
     }
 }
 
-bool HomeAssistantArduinoMQTT::_sendSingleValue(int i) {
+bool HomeAssistantArduinoMQTT::_sendSingleValue(int i, bool force) {
     char topicBuffer[96]; 
 
-    if (!values[i].availabilitySent) {
+    if (values[i].hasIndAvail && (force || !values[i].availabilitySent)) {
         snprintf(topicBuffer, sizeof(topicBuffer), HAKeys::TOPIC_4_PH, VALUE_TOPIC_PREFIX, _sanitizedDeviceName, values[i].item, HAKeys::AVAILABILITY);
         const char* payload = values[i].lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
         if (mqttClient->publish(topicBuffer, payload, true)) {
@@ -413,7 +415,7 @@ bool HomeAssistantArduinoMQTT::_sendSingleValue(int i) {
         }
     }
 
-    if (!values[i].valueChanged && !values[i].isFirstValue) {
+    if (!force && !values[i].valueChanged && !values[i].isFirstValue) {
         return true;
     }
 
@@ -427,20 +429,20 @@ bool HomeAssistantArduinoMQTT::_sendSingleValue(int i) {
     return false;
 }
 
-bool HomeAssistantArduinoMQTT::sendValues() {
+bool HomeAssistantArduinoMQTT::sendValues( bool force) {
     if (!mqttClient || !mqttClient->connected()) return false;
 
     bool sent = true;
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0') {
-            sent &= _sendSingleValue(i);
+            sent &= _sendSingleValue(i, force);
         }
     }
 
     return sent;
 }
 
-bool HomeAssistantArduinoMQTT::sendValue(const char* item) {
+bool HomeAssistantArduinoMQTT::sendValue(const char* item, bool force) {
     if (!mqttClient || !mqttClient->connected()) return false;
 
     char sanitizedItem[32];
@@ -448,7 +450,7 @@ bool HomeAssistantArduinoMQTT::sendValue(const char* item) {
 
     for (int i = 0; i < maxEntityNum; i++) {
         if (values[i].item[0] != '\0' && strcmp(values[i].item, sanitizedItem) == 0) {
-            return _sendSingleValue(i);
+            return _sendSingleValue(i, force);
         }
     }
     return false;
