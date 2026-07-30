@@ -1,0 +1,71 @@
+#######################################
+# Syntax Coloring Map For HomeAssistantArduinoMQTT
+#######################################
+
+#######################################
+# Datatypes / Classes (KEYWORD1)
+#######################################
+
+HomeAssistantArduinoMQTT	KEYWORD1
+HAEntityBuilder	KEYWORD1
+HAMQTTCallback	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+# Core Library Methods
+begin	KEYWORD2
+loop	KEYWORD2
+connected	KEYWORD2
+setCallback	KEYWORD2
+setValue	KEYWORD2
+getValue	KEYWORD2
+sendValue	KEYWORD2
+sendValues	KEYWORD2
+
+# Entity Factory Methods
+newEntity	KEYWORD2
+newSensorEntity	KEYWORD2
+newBinarySensorEntity	KEYWORD2
+newSwitchEntity	KEYWORD2
+newButtonEntity	KEYWORD2
+newNumberEntity	KEYWORD2
+newSelectEntity	KEYWORD2
+
+# HAEntityBuilder Methods
+category	KEYWORD2
+deviceClass	KEYWORD2
+stateClass	KEYWORD2
+unit	KEYWORD2
+icon	KEYWORD2
+suggestedDisplayPrecision	KEYWORD2
+startup	KEYWORD2
+independentAvailability	KEYWORD2
+publish	KEYWORD2
+
+# Callback Methods
+onMQTTMessage	KEYWORD2
+
+# Configurable Properties
+MQTTDeviceName	KEYWORD2
+HADeviceName	KEYWORD2
+Manufacturer	KEYWORD2
+Model	KEYWORD2
+Version	KEYWORD2
+ConfigurationUrl  KEYWORD2
+MqttUser	KEYWORD2
+MqttPassword	KEYWORD2
+useSharedAvailability	KEYWORD2
+prefixUniqueIds	KEYWORD2
+enableConfigPublishing	KEYWORD2
+commandEnabled	KEYWORD2
+
+#######################################
+# Constants / Macros (LITERAL1)
+#######################################
+
+HAAM_FORMAT_BOOL	LITERAL1
+HAAM_FORMAT_UINT	LITERAL1
+HAAM_FORMAT_FLOAT	LITERAL1
+HAAM_FORMAT_STR	LITERAL1
