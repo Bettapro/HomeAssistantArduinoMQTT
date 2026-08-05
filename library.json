@@ -2,9 +2,19 @@
   "name": "HomeAssistantArduinoMQTT",
   "version": "0.0.0",
   "description": "Home Assistant MQTT",
+  "keywords": [
+    "home-assistant",
+    "mqtt",
+    "discovery",
+    "esp32",
+    "esp8266",
+    "iot",
+    "zero-heap"
+  ],
   "authors": [
     {
-      "name": "Alberto Bettin"
+      "name": "Alberto Bettin",
+      "url": "https://github.com/Bettapro"
     }
   ],
   "repository": {
@@ -14,7 +24,6 @@
   "frameworks": "arduino",
   "platforms": ["espressif8266", "espressif32"],
   "dependencies": {
-    "ArduinoJson": ">=7.0.0",
     "PubSubClient": ">=2.8"
   }
 }

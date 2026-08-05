@@ -16,18 +16,17 @@ A flexible, lightweight C++ Arduino library designed to seamlessly interface **E
 * **Smart State & Availability**: Built-in support for shared device availability (via LWT - Last Will & Testament) as well as independent per-entity availability.
 * **Optimized for Low Power & Deep Sleep**: Fast MQTT state publication allows battery-operated devices to send updates and re-enter deep sleep rapidly.
 * **Custom Property Support**: Extend discovery payloads with custom JSON properties using flexible `.set()` key-value pairs.
-* **Built on Modern Libraries**: Uses `ArduinoJson` (v7+) for efficient memory management and `PubSubClient` for reliable MQTT communication.
+* **Built on Modern Libraries**: Uses  `PubSubClient` for reliable MQTT communication.
 
 ---
 
 ## 📦 Dependencies
 
-Ensure the following libraries are installed in your Arduino IDE or PlatformIO environment:
+Only core MQTT client functionality is required:
 
 | Library | Version | Description |
 | :--- | :--- | :--- |
-| [**ArduinoJson**](https://arduinojson.org/) | `>= 7.0.0` | JSON serialization and buffer allocation |
-| [**PubSubClient**](https://github.com/knolleary/pubsubclient) | `>= 2.8` | Core MQTT client implementation |
+| [**PubSubClient**](https://github.com/knolleary/pubsubclient) | `>= 2.8` | Core MQTT client transport |
 
 ---
 
@@ -47,9 +46,9 @@ platform = espressif32
 board = esp32dev
 framework = arduino
 lib_deps =
-    bblanchon/ArduinoJson @ ^7.0.0
     knolleary/PubSubClient @ ^2.8.0
-    https://github.com/Bettapro/HomeAssistantArduinoMQTT.git
+    [https://github.com/Bettapro/HomeAssistantArduinoMQTT.git](https://github.com/Bettapro/HomeAssistantArduinoMQTT.git)
+
 ```
 
 ---
@@ -105,6 +104,7 @@ void loop() {
         haMqtt.sendValues(); // Publish updated state to MQTT
     }
 }
+
 ```
 
 ---
@@ -245,27 +245,12 @@ The library provides convenient C-style helper macros for formatting values into
 ```cpp
 char buf[32];
 
-// Format Boolean ("true" / "false")
-HAAM_FORMAT_BOOL(buf, true);
+HAAM_FORMAT_BOOL(buf, true);         // "true"
+HAAM_FORMAT_UINT(buf, 1024);         // "1024"
+HAAM_FORMAT_FLOAT(buf, 23.456, 2);   // "23.46"
+HAAM_FORMAT_STR(buf, "OK");          // "OK"
 
-// Format Unsigned Integer
-HAAM_FORMAT_UINT(buf, 1024);
-
-// Format Float with fixed decimals
-HAAM_FORMAT_FLOAT(buf, 23.456, 2); // Result: "23.46"
-
-// Format String
-HAAM_FORMAT_STR(buf, "OK");
 ```
-
----
-
-## 📂 Included Examples
-
-Find full working sketches in the [`examples/`](examples/) directory:
-
-1. [**AlwaysOnDevice.ino**](examples/AlwaysOnDevice/AlwaysOnDevice.ino): Complete setup for continuously connected devices (Wi-Fi, non-blocking reconnect loop, sensor reporting, switch & button command processing).
-2. [**DeepSleepDevice.ino**](examples/DeepSleepDevice/DeepSleepDevice.ino): Optimized workflow for battery-powered ESP32/ESP8266 devices utilizing deep sleep to maximize battery lifespan.
 
 ---
 

@@ -2,8 +2,35 @@
 
 #include <Client.h>
 #include "Arduino.h"
-#include "ArduinoJson.h"
 #include "PubSubClient.h"
+
+
+#ifndef HAAM_ITEM_LEN
+#define HAAM_ITEM_LEN 32            // max sanitized entity id length + 1
+#endif
+#ifndef HAAM_VALUE_LEN
+#define HAAM_VALUE_LEN 32           // max payload length kept per entity + 1
+#endif
+#ifndef HAAM_DEVICE_LEN
+#define HAAM_DEVICE_LEN 32          // max sanitized device name length + 1
+#endif
+#ifndef HAAM_TOPIC_LEN
+#define HAAM_TOPIC_LEN 112          // shared scratch topic buffer
+#endif
+#ifndef HAAM_PAYLOAD_LEN
+#define HAAM_PAYLOAD_LEN 64         // inbound payload / event payload buffer
+#endif
+#ifndef HAAM_MAX_CUSTOM_PROPS
+#define HAAM_MAX_CUSTOM_PROPS 6     // per-entity extra config keys
+#endif
+#ifndef HAAM_JSON_CHUNK
+#define HAAM_JSON_CHUNK 32          // TCP write coalescing window
+#endif
+
+namespace HAAMFmt {
+    int uintToBuf(char* buf, size_t size, unsigned long val);
+    int strToBuf(char* buf, size_t size, const char* val);
+}
 
 #define HAAM_FORMAT_BOOL(buf, val) \
     HAAM_FORMAT_BOOL_SIZE(buf, sizeof(buf), val)
@@ -15,7 +42,7 @@
     HAAM_FORMAT_UINT_SIZE(buf, sizeof(buf), val)
 
 #define HAAM_FORMAT_UINT_SIZE(buf, size, val) \
-    snprintf(buf, size, "%lu", (unsigned long)(val))
+    HAAMFmt::uintToBuf(buf, size, (unsigned long)(val))
 
 #define HAAM_FORMAT_FLOAT(buf, val, dec) \
     HAAM_FORMAT_FLOAT_SIZE(buf, sizeof(buf), val, dec)
@@ -27,7 +54,7 @@
     HAAM_FORMAT_STR_SIZE(buf, sizeof(buf), val)
 
 #define HAAM_FORMAT_STR_SIZE(buf, size, val) \
-    snprintf(buf, size, "%s", (const char*)(val))
+    HAAMFmt::strToBuf(buf, size, (const char*)(val))
 
 class HAMQTTCallback {
     public:
@@ -36,8 +63,8 @@ class HAMQTTCallback {
 };
 
 struct ItemValue {
-        char item[32];
-        char value[32];
+        char item[HAAM_ITEM_LEN];
+        char value[HAAM_VALUE_LEN];
 
         uint8_t hasIndAvail : 1;
         uint8_t lastAvailable : 1;
@@ -73,12 +100,13 @@ namespace HAKeys {
     const char AVAILABILITY_MODE[] PROGMEM = "avty_mode";
     const char AVAILABILITY_MODE_ALL[] PROGMEM = "all";
 
-    const char TYPE_SENSOR[] PROGMEM = "sensor";
-    const char TYPE_BINARY_SENSOR[] PROGMEM = "binary_sensor";
-    const char TYPE_SWITCH[] PROGMEM = "switch";
-    const char TYPE_BUTTON[] PROGMEM = "button";
-    const char TYPE_NUMBER[] PROGMEM = "number";
-    const char TYPE_SELECT[] PROGMEM = "select";
+
+    const char TYPE_SENSOR[] = "sensor";
+    const char TYPE_BINARY_SENSOR[] = "binary_sensor";
+    const char TYPE_SWITCH[] = "switch";
+    const char TYPE_BUTTON[] = "button";
+    const char TYPE_NUMBER[] = "number";
+    const char TYPE_SELECT[] = "select";
 
     const char PAYLOAD_ON[] PROGMEM = "pl_on";
     const char PAYLOAD_OFF[] PROGMEM = "pl_off";
@@ -103,10 +131,52 @@ namespace HAKeys {
 
 struct HACustomProp {
     const char* key;
-    const char* valStr;
-    int valInt;
-    bool valBool;
-    uint8_t type; // 0: string, 1: int, 2: bool
+    union {                 
+        const char* valStr;
+        int valInt;
+        bool valBool;
+    };
+    uint8_t type;           // 0: string, 1: int, 2: bool
+};
+
+
+class HAJsonStream {
+    public:
+        explicit HAJsonStream(Print* out);
+
+        size_t length() const { return _len; }
+        void flush();
+
+        void openObj();
+        void closeObj();
+        void openArr();
+        void closeArr();
+
+        void key(const char* keyP);          
+
+        void str(const char* s);             
+        void strP(const char* sP);           
+        void num(long v);
+        void boolean(bool v);
+
+        void strBegin();
+        void strAdd(const char* s);
+        void strAddP(const char* sP);
+        void strAddChar(char c);
+        void strEnd();
+
+    private:
+        void sep();
+        void put(char c);
+        void putP(const char* sP);
+        void esc(char c);
+
+        Print* _out;
+        size_t _len;
+        uint8_t _n;
+        bool _first;
+        bool _afterKey;
+        char _buf[HAAM_JSON_CHUNK];
 };
 
 class HAEntityBuilder;
@@ -118,8 +188,9 @@ class HomeAssistantArduinoMQTT {
         Client* _client;
         PubSubClient* mqttClient;
 
-        char StatusTopic[64];
-        char _sanitizedDeviceName[32];
+        char StatusTopic[HAAM_DEVICE_LEN + 16];   
+        char _sanitizedDeviceName[HAAM_DEVICE_LEN];
+        char _topicBuf[HAAM_TOPIC_LEN];
 
         ItemValue* values;
         uint8_t maxEntityNum;
@@ -127,10 +198,14 @@ class HomeAssistantArduinoMQTT {
         HAMQTTCallback* _callbackListener;
 
         void connect();
-        void publishConfig(HAEntityBuilder* builder); 
+        void publishConfig(HAEntityBuilder* builder);
         void MqttCallback(char* topic, byte* payload, unsigned int length);
-        bool _sendSingleValue(int index, bool forceSend = false); 
-        
+        bool _sendSingleValue(int index, bool forceSend = false);
+
+        int16_t _lookup(const char* item, bool allocate, bool* isNew = nullptr);
+        void _valueTopic(const char* a, bool aPgm, const char* b, bool bPgm);
+        void _writeConfig(HAJsonStream& js, HAEntityBuilder* builder, const char* entityId);
+
         unsigned long _lastReconnectAttempt = 0;
         bool _readValuesEnabled = false;
 
@@ -189,27 +264,27 @@ class HAEntityBuilder {
         friend class HomeAssistantArduinoMQTT;
     private:
         HomeAssistantArduinoMQTT* _mqtt;
-        
+
         const char* _type;
         const char* _name;
         const char* _id;
         const char* _commandTopicName;
         const char* _startupValue;
-        
-        const char* _category = nullptr;
-        const char* _deviceClass = nullptr;
-        const char* _stateClass = nullptr;
-        const char* _icon = nullptr;
-        const char* _unit = nullptr;
 
-        HACustomProp _customProps[6];
-        uint8_t _customPropCount = 0;
+        const char* _category;
+        const char* _deviceClass;
+        const char* _stateClass;
+        const char* _icon;
+        const char* _unit;
 
-        uint8_t _suggestedPrecision = 0;
-        bool _commandTopic = false;
-        bool _stateTopic = true;
-        bool _indAvail = false;
-        bool _suggestedPrecisionEnable = false;
+        HACustomProp _customProps[HAAM_MAX_CUSTOM_PROPS];
+        uint8_t _customPropCount;
+
+        uint8_t _suggestedPrecision;
+        uint8_t _commandTopic : 1;
+        uint8_t _stateTopic : 1;
+        uint8_t _indAvail : 1;
+        uint8_t _suggestedPrecisionEnable : 1;
 
     public:
         HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name);
@@ -223,8 +298,8 @@ class HAEntityBuilder {
         void state(bool enable);
         void startup(const char* val);
         void independentAvailability(bool enable = true);
-        void suggestedDisplayPrecision(uint8_t precision); 
-        
+        void suggestedDisplayPrecision(uint8_t precision);
+
         void set(const char* key, const char* value);
         void set(const char* key, int value);
         void set(const char* key, bool value);
