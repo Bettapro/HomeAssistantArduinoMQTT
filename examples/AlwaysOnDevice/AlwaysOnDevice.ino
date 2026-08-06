@@ -12,10 +12,15 @@
 
 #if defined(ESP8266)
   #include <ESP8266WiFi.h>
+  WiFiClient netClient;
 #elif defined(ESP32)
   #include <WiFi.h>
+  WiFiClient netClient;
+#elif defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAMD)
+  #include <Ethernet.h>
+  EthernetClient netClient;
 #else
-  #error "Board not supported! Please select ESP8266 or ESP32."
+  #error "Board not supported!"
 #endif
 
 #include <HomeAssistantArduinoMQTT.h>
@@ -35,10 +40,6 @@ const char* MQTT_PASS     = "mqtt_password";
 const uint8_t RELAY_PIN   = 5;   // GPIO connected to Relay / LED
 const uint8_t STATUS_LED  = 2;   // Onboard LED indicator
 
-// ==========================================
-// GLOBALS & OBJECTS
-// ==========================================
-WiFiClient netClient;
 
 // Initialize HomeAssistantArduinoMQTT instance with capacity for 4 entities
 HomeAssistantArduinoMQTT haMqtt(4);

@@ -65,6 +65,7 @@ jobs:
             - source-path: ./
             - name: PubSubClient
             - name: ArduinoJson
+            - name: Ethernet
           sketch-paths: |
             - examples
           enable-deltas-report: true

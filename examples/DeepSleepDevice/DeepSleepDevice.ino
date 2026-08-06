@@ -10,14 +10,14 @@
   Repository: https://github.com/Bettapro/HomeAssistantArduinoMQTT
 */
 
+#if defined(ESP8266) || defined(ESP32)
+
 #if defined(ESP8266)
   #include <ESP8266WiFi.h>
   #define REST_SLEEP_US(us) ESP.deepSleep(us)
 #elif defined(ESP32)
   #include <WiFi.h>
   #define REST_SLEEP_US(us) esp_sleep_enable_timer_wakeup(us); esp_deep_sleep_start()
-#else
-  #error "Board not supported! Please select ESP8266 or ESP32."
 #endif
 
 #include <HomeAssistantArduinoMQTT.h>
@@ -209,3 +209,8 @@ void setup() {
 void loop() {
     // Loop is never reached in Deep Sleep mode as board resets upon wake up
 }
+
+#else
+void setup() {}
+void loop() {}
+#endif
