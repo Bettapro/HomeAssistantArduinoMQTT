@@ -2,9 +2,9 @@
   AlwaysOnDevice.ino
   HomeAssistantArduinoMQTT Library Example
   
-  Demonstrates an always-on device (ESP32 or ESP8266) connected continuously
-  to Wi-Fi and MQTT. Registers a Temperature Sensor, Humidity Sensor, 
-  Relay Switch, and Action Button with Home Assistant Auto-Discovery.
+  Demonstrates an always-on device (ESP32, ESP8266, AVR, SAMD) connected continuously.
+  Registers a Temperature Sensor, Humidity Sensor, Relay Switch, and Action Button 
+  with Home Assistant Auto-Discovery.
 
   Author: Alberto Bettin
   Repository: https://github.com/Bettapro/HomeAssistantArduinoMQTT
@@ -19,8 +19,9 @@
 #elif defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAMD)
   #include <Ethernet.h>
   EthernetClient netClient;
+  byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 #else
-  #error "Board not supported!"
+  #error "Board non supportata!"
 #endif
 
 #include <HomeAssistantArduinoMQTT.h>
@@ -28,8 +29,10 @@
 // ==========================================
 // CONFIGURATION - Update with your settings
 // ==========================================
+#if defined(ESP8266) || defined(ESP32)
 const char* WIFI_SSID     = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+#endif
 
 const char* MQTT_BROKER   = "192.168.1.100";
 const uint16_t MQTT_PORT  = 1883;
@@ -37,12 +40,67 @@ const char* MQTT_USER     = "mqtt_user";
 const char* MQTT_PASS     = "mqtt_password";
 
 // Hardware Pins
-const uint8_t RELAY_PIN   = 5;   // GPIO connected to Relay / LED
-const uint8_t STATUS_LED  = 2;   // Onboard LED indicator
-
+#if defined(LED_BUILTIN)
+const uint8_t STATUS_LED  = LED_BUILTIN;
+#else
+const uint8_t STATUS_LED  = 13;
+#endif
+const uint8_t RELAY_PIN   = 5;   // GPIO connected to Relay
 
 // Initialize HomeAssistantArduinoMQTT instance with capacity for 4 entities
 HomeAssistantArduinoMQTT haMqtt(4);
+
+// ==========================================
+// MULTI-PLATFORM HELPERS
+// ==========================================
+void rebootDevice() {
+#if defined(ESP8266) || defined(ESP32)
+    ESP.restart();
+#elif defined(ARDUINO_ARCH_SAMD)
+    NVIC_SystemReset();
+#elif defined(ARDUINO_ARCH_AVR)
+    asm volatile ("jmp 0"); // Soft-reset per AVR
+#endif
+}
+
+bool isNetworkConnected() {
+#if defined(ESP8266) || defined(ESP32)
+    return WiFi.status() == WL_CONNECTED;
+#elif defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAMD)
+    return Ethernet.linkStatus() != LinkOFF;
+#else
+    return true;
+#endif
+}
+
+void connectNetwork() {
+#if defined(ESP8266) || defined(ESP32)
+    if (WiFi.status() == WL_CONNECTED) return;
+
+    Serial.print(F("Connecting to Wi-Fi SSID: "));
+    Serial.println(WIFI_SSID);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(F("."));
+    }
+
+    Serial.println();
+    Serial.print(F("Wi-Fi Connected! IP Address: "));
+    Serial.println(WiFi.localIP());
+#elif defined(ARDUINO_ARCH_AVR) || defined(ARDUINO_ARCH_SAMD)
+    Serial.println(F("Initializing Ethernet via DHCP..."));
+    if (Ethernet.begin(mac) == 0) {
+        Serial.println(F("DHCP Failed! Check cable connection."));
+    } else {
+        Serial.print(F("Ethernet Connected! IP Address: "));
+        Serial.println(Ethernet.localIP());
+    }
+#endif
+}
 
 // Callback Handler Class for incoming Home Assistant commands
 class CustomMQTTCallback : public HAMQTTCallback {
@@ -74,7 +132,7 @@ public:
             else if (strcmp(item, "restart_btn") == 0) {
                 Serial.println(F("Restart Button pressed from Home Assistant! Rebooting..."));
                 delay(500);
-                ESP.restart();
+                rebootDevice();
             }
         }
     }
@@ -85,28 +143,6 @@ CustomMQTTCallback mqttCallbackHandler;
 // Timing variables for non-blocking loop updates
 unsigned long lastSensorReadTime = 0;
 const unsigned long SENSOR_READ_INTERVAL = 10000; // Read sensors every 10 seconds
-
-// ==========================================
-// HELPER FUNCTIONS
-// ==========================================
-void connectWiFi() {
-    if (WiFi.status() == WL_CONNECTED) return;
-
-    Serial.print(F("Connecting to Wi-Fi SSID: "));
-    Serial.println(WIFI_SSID);
-
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(F("."));
-    }
-
-    Serial.println();
-    Serial.print(F("Wi-Fi Connected! IP Address: "));
-    Serial.println(WiFi.localIP());
-}
 
 void setupEntities() {
     Serial.println(F("Publishing Home Assistant Auto-Discovery entities..."));
@@ -164,13 +200,13 @@ void setup() {
     digitalWrite(RELAY_PIN, LOW);
     digitalWrite(STATUS_LED, LOW);
 
-    connectWiFi();
+    connectNetwork();
 
     // Device metadata
     haMqtt.MQTTDeviceName = "climate_node_01";
     haMqtt.HADeviceName   = "Climate & Control Node";
     haMqtt.Manufacturer   = "Custom DIY";
-    haMqtt.Model          = "ESP-AlwaysOn-Node";
+    haMqtt.Model          = "MultiArch-AlwaysOn-Node";
     haMqtt.Version        = "1.0.0";
     haMqtt.MqttUser       = MQTT_USER;
     haMqtt.MqttPassword   = MQTT_PASS;
@@ -186,9 +222,9 @@ void setup() {
 }
 
 void loop() {
-    // Reconnect Wi-Fi if connection drops
-    if (WiFi.status() != WL_CONNECTED) {
-        connectWiFi();
+    // Reconnect Network if connection drops
+    if (!isNetworkConnected()) {
+        connectNetwork();
     }
 
     // Process MQTT loop (handles reconnection and incoming command callbacks)
