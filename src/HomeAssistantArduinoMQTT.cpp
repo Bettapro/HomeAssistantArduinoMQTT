@@ -1,6 +1,5 @@
 #include "HomeAssistantArduinoMQTT.h"
 
-
 namespace {
 
 inline size_t appChar(char* d, size_t cap, size_t p, char c) {
@@ -24,7 +23,11 @@ size_t appPgm(char* d, size_t cap, size_t p, const char* sP) {
 void copyStr(char* dst, size_t cap, const char* src) {
     size_t p = 0;
     if (!cap) return;
-    if (src) while (src[p] && p + 1 < cap) { dst[p] = src[p]; p++; }
+    if (src)
+        while (src[p] && p + 1 < cap) {
+            dst[p] = src[p];
+            p++;
+        }
     dst[p] = '\0';
 }
 
@@ -38,21 +41,29 @@ void writeTopicValue(HAJsonStream& js, const char* dev,
     js.strAddChar('/');
     js.strAdd(dev);
     js.strAddChar('/');
-    if (aPgm) js.strAddP(a); else js.strAdd(a);
+    if (aPgm)
+        js.strAddP(a);
+    else
+        js.strAdd(a);
     if (b) {
         js.strAddChar('/');
-        if (bPgm) js.strAddP(b); else js.strAdd(b);
+        if (bPgm)
+            js.strAddP(b);
+        else
+            js.strAdd(b);
     }
     js.strEnd();
 }
 
 }  // namespace
 
-
 int HAAMFmt::uintToBuf(char* buf, size_t size, unsigned long val) {
     char tmp[11];
     uint8_t n = 0;
-    do { tmp[n++] = (char)('0' + (val % 10)); val /= 10; } while (val);
+    do {
+        tmp[n++] = (char)('0' + (val % 10));
+        val /= 10;
+    } while (val);
 
     size_t p = 0;
     if (size) {
@@ -65,7 +76,11 @@ int HAAMFmt::uintToBuf(char* buf, size_t size, unsigned long val) {
 int HAAMFmt::strToBuf(char* buf, size_t size, const char* val) {
     size_t p = 0;
     if (!size) return 0;
-    if (val) while (val[p] && p + 1 < size) { buf[p] = val[p]; p++; }
+    if (val)
+        while (val[p] && p + 1 < size) {
+            buf[p] = val[p];
+            p++;
+        }
     buf[p] = '\0';
     return (int)p;
 }
@@ -78,7 +93,7 @@ HAJsonStream::HAJsonStream(Print* out)
 
 void HAJsonStream::put(char c) {
     _len++;
-    if (!_out) return;                       
+    if (!_out) return;
     _buf[_n++] = c;
     if (_n == sizeof(_buf)) flush();
 }
@@ -95,52 +110,109 @@ void HAJsonStream::putP(const char* sP) {
 
 void HAJsonStream::esc(char c) {
     switch (c) {
-        case '"':  put('\\'); put('"');  break;
-        case '\\': put('\\'); put('\\'); break;
-        case '\n': put('\\'); put('n');  break;
-        case '\r': put('\\'); put('r');  break;
-        case '\t': put('\\'); put('t');  break;
-        default:   if ((uint8_t)c >= 0x20) put(c); break;
+        case '"':
+            put('\\');
+            put('"');
+            break;
+        case '\\':
+            put('\\');
+            put('\\');
+            break;
+        case '\n':
+            put('\\');
+            put('n');
+            break;
+        case '\r':
+            put('\\');
+            put('r');
+            break;
+        case '\t':
+            put('\\');
+            put('t');
+            break;
+        default:
+            if ((uint8_t)c >= 0x20) put(c);
+            break;
     }
 }
 
 void HAJsonStream::sep() {
-    if (_afterKey) { _afterKey = false; return; }
+    if (_afterKey) {
+        _afterKey = false;
+        return;
+    }
     if (!_first) put(',');
     _first = false;
 }
 
-void HAJsonStream::openObj()  { sep(); put('{'); _first = true; }
-void HAJsonStream::closeObj() { put('}'); _first = false; }
-void HAJsonStream::openArr()  { sep(); put('['); _first = true; }
-void HAJsonStream::closeArr() { put(']'); _first = false; }
+void HAJsonStream::openObj() {
+    sep();
+    put('{');
+    _first = true;
+}
+void HAJsonStream::closeObj() {
+    put('}');
+    _first = false;
+}
+void HAJsonStream::openArr() {
+    sep();
+    put('[');
+    _first = true;
+}
+void HAJsonStream::closeArr() {
+    put(']');
+    _first = false;
+}
 
 void HAJsonStream::key(const char* keyP) {
     if (!_first) put(',');
     _first = false;
-    put('"'); putP(keyP); put('"'); put(':');
+    put('"');
+    putP(keyP);
+    put('"');
+    put(':');
     _afterKey = true;
 }
 
-void HAJsonStream::strBegin()               { sep(); put('"'); }
-void HAJsonStream::strEnd()                 { put('"'); }
-void HAJsonStream::strAddChar(char c)       { esc(c); }
-void HAJsonStream::strAdd(const char* s)    { if (s) while (*s) esc(*s++); }
-void HAJsonStream::strAddP(const char* sP)  {
+void HAJsonStream::strBegin() {
+    sep();
+    put('"');
+}
+void HAJsonStream::strEnd() { put('"'); }
+void HAJsonStream::strAddChar(char c) { esc(c); }
+void HAJsonStream::strAdd(const char* s) {
+    if (s)
+        while (*s) esc(*s++);
+}
+void HAJsonStream::strAddP(const char* sP) {
     if (!sP) return;
     char c;
     while ((c = (char)pgm_read_byte(sP++)) != '\0') esc(c);
 }
 
-void HAJsonStream::str(const char* s)   { strBegin(); strAdd(s);  strEnd(); }
-void HAJsonStream::strP(const char* sP) { strBegin(); strAddP(sP); strEnd(); }
+void HAJsonStream::str(const char* s) {
+    strBegin();
+    strAdd(s);
+    strEnd();
+}
+void HAJsonStream::strP(const char* sP) {
+    strBegin();
+    strAddP(sP);
+    strEnd();
+}
 
 void HAJsonStream::num(long v) {
     sep();
-    if (v < 0) { put('-'); v = -v; }
+    if (v < 0) {
+        put('-');
+        v = -v;
+    }
     char tmp[11];
     uint8_t n = 0;
-    do { tmp[n++] = (char)('0' + (v % 10)); v /= 10; } while (v);
+    do {
+        tmp[n++] = (char)('0' + (v % 10));
+        v /= 10;
+    } while (v);
     while (n) put(tmp[--n]);
 }
 
@@ -152,13 +224,18 @@ void HAJsonStream::boolean(bool v) {
 // ===========================================================================
 //  HomeAssistantArduinoMQTT
 // ===========================================================================
+
+#ifndef MQTT_CALLBACK_FUNCTIONAL
+HomeAssistantArduinoMQTT* _myHaamInstance;
+#endif
+
 HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     mqttClient = nullptr;
     _client = nullptr;
     _callbackListener = nullptr;
     maxEntityNum = maxN;
 
-    values = new ItemValue[maxEntityNum]();  
+    values = new ItemValue[maxEntityNum]();
 
     for (uint8_t i = 0; i < maxEntityNum; i++) {
         values[i].isFirstValue = 1;
@@ -170,6 +247,10 @@ HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     _topicBuf[0] = '\0';
     _lastReconnectAttempt = 0;
     _readValuesEnabled = false;
+
+#ifndef MQTT_CALLBACK_FUNCTIONAL
+    _myHaamInstance = this;
+#endif
 }
 
 HomeAssistantArduinoMQTT::~HomeAssistantArduinoMQTT() {
@@ -179,7 +260,10 @@ HomeAssistantArduinoMQTT::~HomeAssistantArduinoMQTT() {
 
 void HomeAssistantArduinoMQTT::sanitizeID(const char* input, char* output, size_t maxLen) {
     if (!output || maxLen == 0) return;
-    if (!input) { output[0] = '\0'; return; }
+    if (!input) {
+        output[0] = '\0';
+        return;
+    }
 
     size_t w = 0;
     bool lastWasUnderscore = false;
@@ -197,6 +281,46 @@ void HomeAssistantArduinoMQTT::sanitizeID(const char* input, char* output, size_
     }
     if (w > 0 && output[w - 1] == '_') w--;
     output[w] = '\0';
+}
+
+#ifdef MQTT_CALLBACK_FUNCTIONAL
+void HomeAssistantArduinoMQTT::MqttCallback(char* topic, byte* payload, unsigned int length) {
+    HomeAssistantArduinoMQTT* _myHaamInstance = this;
+#else
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+#endif
+    if (!_myHaamInstance->commandEnabled) return;
+
+    constexpr size_t prefixLen = sizeof(HAKeys::VALUE_TOPIC_PREFIX) - 1;
+    if (strncmp(topic, HAKeys::VALUE_TOPIC_PREFIX, prefixLen) != 0 || topic[prefixLen] != '/') return;
+
+    const char* devPtr = topic + prefixLen + 1;
+    size_t devLen = strlen(_myHaamInstance->_sanitizedDeviceName);
+    if (strncmp(devPtr, _myHaamInstance->_sanitizedDeviceName, devLen) != 0 || devPtr[devLen] != '/') return;
+
+    const char* remainder = devPtr + devLen + 1;
+    const char* lastSlash = strrchr(remainder, '/');
+    if (lastSlash == nullptr) return;
+
+    size_t itemLen = (size_t)(lastSlash - remainder);
+    if (itemLen >= HAAM_ITEM_LEN) return;
+
+    const char* action = lastSlash + 1;
+    bool isCommand = (strcmp(action, HAKeys::TOPIC_COMMAND) == 0);
+    bool isState = (!isCommand && strcmp(action, HAKeys::TOPIC_STATE) == 0);
+    if (!isCommand && !isState) return;
+
+    char item[HAAM_ITEM_LEN];
+    memcpy(item, remainder, itemLen);
+    item[itemLen] = '\0';
+
+    char cPayload[HAAM_PAYLOAD_LEN];
+    unsigned int copyLen = (length < sizeof(cPayload) - 1) ? length : (unsigned int)(sizeof(cPayload) - 1);
+    memcpy(cPayload, payload, copyLen);
+    cPayload[copyLen] = '\0';
+
+    if (isState) _myHaamInstance->setValue(item, cPayload, false);
+    if (_myHaamInstance->_callbackListener != nullptr) _myHaamInstance->_callbackListener->onMQTTMessage(item, cPayload, isState);
 }
 
 void HomeAssistantArduinoMQTT::_valueTopic(const char* a, bool aPgm,
@@ -265,16 +389,22 @@ void HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const u
     copyStr(StatusTopic, sizeof(StatusTopic), _topicBuf);
 
     if (mqttClient == nullptr) {
-        mqttClient = new PubSubClient(*_client);
+        mqttClient = new PubSubClient(client);
     } else {
-        mqttClient->setClient(*_client);
+        mqttClient->setClient(client);
     }
     mqttClient->setBufferSize(bufferSize);
     mqttClient->setServer(server, port);
 
+#ifdef MQTT_CALLBACK_FUNCTIONAL
     mqttClient->setCallback([this](char* topic, byte* payload, unsigned int length) {
         this->MqttCallback(topic, payload, length);
     });
+#else
+    mqttClient->setCallback([](char* topic, byte* payload, unsigned int length) {
+        mqttCallback(topic, payload, length);
+    });
+#endif
 
     mqttClient->setKeepAlive(keepAlive);
 }
@@ -386,7 +516,6 @@ HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(const char* id, const 
     return builder;
 }
 
-
 void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b, const char* entityId) {
     js.openObj();
 
@@ -416,40 +545,75 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
 
     js.key(HAKeys::DEVICE);
     js.openObj();
-        js.key(HAKeys::IDENTIFIERS);
-        js.openArr();
-        js.str(_sanitizedDeviceName);
-        js.closeArr();
-        js.key(HAKeys::MANUFACTURER); js.str(Manufacturer);
-        js.key(HAKeys::MODEL);        js.str(Model);
-        js.key(HAKeys::NAME);         js.str(HADeviceName);
-        js.key(HAKeys::SW_VERSION);   js.str(Version);
-        if (!isEmptyStr(ConfigurationUrl)) {
-            js.key(HAKeys::CONFIGURATION_URL); js.str(ConfigurationUrl);
-        }
+    js.key(HAKeys::IDENTIFIERS);
+    js.openArr();
+    js.str(_sanitizedDeviceName);
+    js.closeArr();
+    js.key(HAKeys::MANUFACTURER);
+    js.str(Manufacturer);
+    js.key(HAKeys::MODEL);
+    js.str(Model);
+    js.key(HAKeys::NAME);
+    js.str(HADeviceName);
+    js.key(HAKeys::SW_VERSION);
+    js.str(Version);
+    if (!isEmptyStr(ConfigurationUrl)) {
+        js.key(HAKeys::CONFIGURATION_URL);
+        js.str(ConfigurationUrl);
+    }
     js.closeObj();
 
-    if (!isEmptyStr(b->_name))          { js.key(HAKeys::NAME); js.str(b->_name); }
-    if (b->_suggestedPrecisionEnable)   { js.key(HAKeys::SUGGESTED_DISPLAY_PRECISION); js.num(b->_suggestedPrecision); }
-    if (b->_category)                   { js.key(HAKeys::ENTITY_CATEGORY); js.str(b->_category); }
-    if (b->_deviceClass)                { js.key(HAKeys::DEVICE_CLASS); js.str(b->_deviceClass); }
-    if (b->_stateClass)                 { js.key(HAKeys::STATE_CLASS); js.str(b->_stateClass); }
-    if (b->_icon)                       { js.key(HAKeys::ICON); js.str(b->_icon); }
-    if (b->_unit)                       { js.key(HAKeys::UNIT_OF_MEASUREMENT); js.str(b->_unit); }
+    if (!isEmptyStr(b->_name)) {
+        js.key(HAKeys::NAME);
+        js.str(b->_name);
+    }
+    if (b->_suggestedPrecisionEnable) {
+        js.key(HAKeys::SUGGESTED_DISPLAY_PRECISION);
+        js.num(b->_suggestedPrecision);
+    }
+    if (b->_category) {
+        js.key(HAKeys::ENTITY_CATEGORY);
+        js.str(b->_category);
+    }
+    if (b->_deviceClass) {
+        js.key(HAKeys::DEVICE_CLASS);
+        js.str(b->_deviceClass);
+    }
+    if (b->_stateClass) {
+        js.key(HAKeys::STATE_CLASS);
+        js.str(b->_stateClass);
+    }
+    if (b->_icon) {
+        js.key(HAKeys::ICON);
+        js.str(b->_icon);
+    }
+    if (b->_unit) {
+        js.key(HAKeys::UNIT_OF_MEASUREMENT);
+        js.str(b->_unit);
+    }
 
     for (uint8_t i = 0; i < b->_customPropCount; i++) {
         const HACustomProp& cp = b->_customProps[i];
         js.key(cp.key);
         switch (cp.type) {
-            case 0:  js.strP(cp.valStr); break;          
-            case 1:  js.num(cp.valInt); break;
-            default: js.boolean(cp.valBool); break;
+            case 0:
+                js.strP(cp.valStr);
+                break;
+            case 1:
+                js.num(cp.valInt);
+                break;
+            default:
+                js.boolean(cp.valBool);
+                break;
         }
     }
 
     js.key(HAKeys::UNIQUE_ID);
     js.strBegin();
-    if (prefixUniqueIds) { js.strAdd(_sanitizedDeviceName); js.strAddChar('_'); }
+    if (prefixUniqueIds) {
+        js.strAdd(_sanitizedDeviceName);
+        js.strAddChar('_');
+    }
     js.strAdd(entityId);
     js.strEnd();
 
@@ -483,7 +647,7 @@ void HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
 
     if (enableConfigPublishing && mqttClient && mqttClient->connected()) {
         size_t payloadLen;
-        {   
+        {
             HAJsonStream measure(nullptr);
             _writeConfig(measure, builder, entityId);
             payloadLen = measure.length();
@@ -652,51 +816,11 @@ void HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* even
     sendCommand(eventName, payload);
 }
 
-void HomeAssistantArduinoMQTT::MqttCallback(char* topic, byte* payload, unsigned int length) {
-    if (!commandEnabled) return;
-
-    constexpr size_t prefixLen = sizeof(HAKeys::VALUE_TOPIC_PREFIX) - 1;
-    if (strncmp(topic, HAKeys::VALUE_TOPIC_PREFIX, prefixLen) != 0 || topic[prefixLen] != '/') return;
-
-    const char* devPtr = topic + prefixLen + 1;
-    size_t devLen = strlen(_sanitizedDeviceName);
-    if (strncmp(devPtr, _sanitizedDeviceName, devLen) != 0 || devPtr[devLen] != '/') return;
-
-    const char* remainder = devPtr + devLen + 1;
-    const char* lastSlash = strrchr(remainder, '/');
-    if (lastSlash == nullptr) return;
-
-    size_t itemLen = (size_t)(lastSlash - remainder);
-    if (itemLen >= HAAM_ITEM_LEN) return;
-
-    const char* action = lastSlash + 1;
-    bool isCommand = (strcmp(action, HAKeys::TOPIC_COMMAND) == 0);
-    bool isState = (!isCommand && strcmp(action, HAKeys::TOPIC_STATE) == 0);
-    if (!isCommand && !isState) return;
-
-    char item[HAAM_ITEM_LEN];
-    memcpy(item, remainder, itemLen);
-    item[itemLen] = '\0';
-
-    char cPayload[HAAM_PAYLOAD_LEN];
-    unsigned int copyLen = (length < sizeof(cPayload) - 1) ? length : (unsigned int)(sizeof(cPayload) - 1);
-    memcpy(cPayload, payload, copyLen);
-    cPayload[copyLen] = '\0';
-
-    if (isState) setValue(item, cPayload, false);
-    if (_callbackListener != nullptr) _callbackListener->onMQTTMessage(item, cPayload, isState);
-}
-
 // ===========================================================================
 //  HAEntityBuilder
 // ===========================================================================
 HAEntityBuilder::HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name)
-    : _mqtt(mqtt), _type(type), _name(name), _id(id),
-      _commandTopicName(nullptr), _startupValue(nullptr),
-      _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr),
-      _icon(nullptr), _unit(nullptr),
-      _customPropCount(0), _suggestedPrecision(0),
-      _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
+    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _customPropCount(0), _suggestedPrecision(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
 
 void HAEntityBuilder::category(const char* val) { _category = val; }
 void HAEntityBuilder::deviceClass(const char* val) { _deviceClass = val; }

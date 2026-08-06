@@ -1,36 +1,40 @@
 #pragma once
 
 #include <Client.h>
+
 #include "Arduino.h"
 #include "PubSubClient.h"
 
-
 #ifndef HAAM_ITEM_LEN
-#define HAAM_ITEM_LEN 32            // max sanitized entity id length + 1
+#define HAAM_ITEM_LEN 32  // max sanitized entity id length + 1
 #endif
 #ifndef HAAM_VALUE_LEN
-#define HAAM_VALUE_LEN 32           // max payload length kept per entity + 1
+#define HAAM_VALUE_LEN 32  // max payload length kept per entity + 1
 #endif
 #ifndef HAAM_DEVICE_LEN
-#define HAAM_DEVICE_LEN 32          // max sanitized device name length + 1
+#define HAAM_DEVICE_LEN 32  // max sanitized device name length + 1
 #endif
 #ifndef HAAM_TOPIC_LEN
-#define HAAM_TOPIC_LEN 112          // shared scratch topic buffer
+#define HAAM_TOPIC_LEN 112  // shared scratch topic buffer
 #endif
 #ifndef HAAM_PAYLOAD_LEN
-#define HAAM_PAYLOAD_LEN 64         // inbound payload / event payload buffer
+#define HAAM_PAYLOAD_LEN 64  // inbound payload / event payload buffer
 #endif
 #ifndef HAAM_MAX_CUSTOM_PROPS
-#define HAAM_MAX_CUSTOM_PROPS 6     // per-entity extra config keys
+#define HAAM_MAX_CUSTOM_PROPS 6  // per-entity extra config keys
 #endif
 #ifndef HAAM_JSON_CHUNK
-#define HAAM_JSON_CHUNK 32          // TCP write coalescing window
+#define HAAM_JSON_CHUNK 32  // TCP write coalescing window
+#endif
+
+#if defined(ESP8266) || defined(ESP32)
+#define MQTT_CALLBACK_FUNCTIONAL
 #endif
 
 namespace HAAMFmt {
-    int uintToBuf(char* buf, size_t size, unsigned long val);
-    int strToBuf(char* buf, size_t size, const char* val);
-}
+int uintToBuf(char* buf, size_t size, unsigned long val);
+int strToBuf(char* buf, size_t size, const char* val);
+}  // namespace HAAMFmt
 
 #define HAAM_FORMAT_BOOL(buf, val) \
     HAAM_FORMAT_BOOL_SIZE(buf, sizeof(buf), val)
@@ -75,70 +79,68 @@ struct ItemValue {
 };
 
 namespace HAKeys {
-    const char VALUE_TOPIC_PREFIX[] = "haam";
+const char VALUE_TOPIC_PREFIX[] = "haam";
 
-    const char AVAILABILITY[] PROGMEM = "avty";
-    const char TOPIC[] PROGMEM = "t";
-    const char DEVICE[] PROGMEM = "dev";
-    const char IDENTIFIERS[] PROGMEM = "ids";
-    const char MANUFACTURER[] PROGMEM = "mf";
-    const char CONFIGURATION_URL[] PROGMEM = "cu";
-    const char MODEL[] PROGMEM = "mdl";
-    const char NAME[] PROGMEM = "name";
-    const char SW_VERSION[] PROGMEM = "sw";
-    const char UNIQUE_ID[] PROGMEM = "uniq_id";
-    const char ENABLED_DEFAULT[] PROGMEM = "en";
-    const char COMMAND_TOPIC[] PROGMEM = "cmd_t";
-    const char STATE_TOPIC[] PROGMEM = "stat_t";
-    const char ENTITY_CATEGORY[] PROGMEM = "ent_cat";
-    const char DEVICE_CLASS[] PROGMEM = "dev_cla";
-    const char STATE_CLASS[] PROGMEM = "stat_cla";
-    const char ICON[] PROGMEM = "ic";
-    const char UNIT_OF_MEASUREMENT[] PROGMEM = "unit_of_meas";
-    const char SUGGESTED_DISPLAY_PRECISION[] PROGMEM = "sug_dsp_prc";
+const char AVAILABILITY[] PROGMEM = "avty";
+const char TOPIC[] PROGMEM = "t";
+const char DEVICE[] PROGMEM = "dev";
+const char IDENTIFIERS[] PROGMEM = "ids";
+const char MANUFACTURER[] PROGMEM = "mf";
+const char CONFIGURATION_URL[] PROGMEM = "cu";
+const char MODEL[] PROGMEM = "mdl";
+const char NAME[] PROGMEM = "name";
+const char SW_VERSION[] PROGMEM = "sw";
+const char UNIQUE_ID[] PROGMEM = "uniq_id";
+const char ENABLED_DEFAULT[] PROGMEM = "en";
+const char COMMAND_TOPIC[] PROGMEM = "cmd_t";
+const char STATE_TOPIC[] PROGMEM = "stat_t";
+const char ENTITY_CATEGORY[] PROGMEM = "ent_cat";
+const char DEVICE_CLASS[] PROGMEM = "dev_cla";
+const char STATE_CLASS[] PROGMEM = "stat_cla";
+const char ICON[] PROGMEM = "ic";
+const char UNIT_OF_MEASUREMENT[] PROGMEM = "unit_of_meas";
+const char SUGGESTED_DISPLAY_PRECISION[] PROGMEM = "sug_dsp_prc";
 
-    const char AVAILABILITY_MODE[] PROGMEM = "avty_mode";
-    const char AVAILABILITY_MODE_ALL[] PROGMEM = "all";
+const char AVAILABILITY_MODE[] PROGMEM = "avty_mode";
+const char AVAILABILITY_MODE_ALL[] PROGMEM = "all";
 
+const char TYPE_SENSOR[] = "sensor";
+const char TYPE_BINARY_SENSOR[] = "binary_sensor";
+const char TYPE_SWITCH[] = "switch";
+const char TYPE_BUTTON[] = "button";
+const char TYPE_NUMBER[] = "number";
+const char TYPE_SELECT[] = "select";
 
-    const char TYPE_SENSOR[] = "sensor";
-    const char TYPE_BINARY_SENSOR[] = "binary_sensor";
-    const char TYPE_SWITCH[] = "switch";
-    const char TYPE_BUTTON[] = "button";
-    const char TYPE_NUMBER[] = "number";
-    const char TYPE_SELECT[] = "select";
+const char PAYLOAD_ON[] PROGMEM = "pl_on";
+const char PAYLOAD_OFF[] PROGMEM = "pl_off";
+const char PAYLOAD_PRESS[] PROGMEM = "pl_prs";
 
-    const char PAYLOAD_ON[] PROGMEM = "pl_on";
-    const char PAYLOAD_OFF[] PROGMEM = "pl_off";
-    const char PAYLOAD_PRESS[] PROGMEM = "pl_prs";
+const char VAL_TRUE[] PROGMEM = "true";
+const char VAL_FALSE[] PROGMEM = "false";
+const char VAL_PRESS[] PROGMEM = "PRESS";
 
-    const char VAL_TRUE[] PROGMEM = "true";
-    const char VAL_FALSE[] PROGMEM = "false";
-    const char VAL_PRESS[] PROGMEM = "PRESS";
+const char PREFIX[] PROGMEM = "homeassistant";
+const char ONLINE_PAYLOAD[] PROGMEM = "online";
+const char OFFLINE_PAYLOAD[] PROGMEM = "offline";
 
-    const char PREFIX[] PROGMEM = "homeassistant";
-    const char ONLINE_PAYLOAD[] PROGMEM = "online";
-    const char OFFLINE_PAYLOAD[] PROGMEM = "offline";
+const char TOPIC_CONFIG[] = "config";
+const char TOPIC_STATE[] = "state";
+const char TOPIC_COMMAND[] = "set";
 
-    const char TOPIC_CONFIG[] = "config";
-    const char TOPIC_STATE[] = "state";
-    const char TOPIC_COMMAND[] = "set";
-
-    const char TOPIC_3_PH[] PROGMEM = "%s/%s/%s";
-    const char TOPIC_4_PH[] PROGMEM = "%s/%s/%s/%s";
-    const char TOPIC_5_PH[] PROGMEM = "%s/%s/%s/%s/%s";
+const char TOPIC_3_PH[] PROGMEM = "%s/%s/%s";
+const char TOPIC_4_PH[] PROGMEM = "%s/%s/%s/%s";
+const char TOPIC_5_PH[] PROGMEM = "%s/%s/%s/%s/%s";
 }  // namespace HAKeys
 
 struct HACustomProp {
-    const char* key;
-    union {                 
-        const char* valStr;
-        int valInt;
-        bool valBool;
-    };
-    uint8_t type;           // 0: string, 1: int, 2: bool
+        const char* key;
+        union {
+                const char* valStr;
+                int valInt;
+                bool valBool;
+        };
+        uint8_t type;  // 0: string, 1: int, 2: bool
 };
-
 
 class HAJsonStream {
     public:
@@ -152,10 +154,10 @@ class HAJsonStream {
         void openArr();
         void closeArr();
 
-        void key(const char* keyP);          
+        void key(const char* keyP);
 
-        void str(const char* s);             
-        void strP(const char* sP);           
+        void str(const char* s);
+        void strP(const char* sP);
         void num(long v);
         void boolean(bool v);
 
@@ -188,18 +190,19 @@ class HomeAssistantArduinoMQTT {
         Client* _client;
         PubSubClient* mqttClient;
 
-        char StatusTopic[HAAM_DEVICE_LEN + 16];   
-        char _sanitizedDeviceName[HAAM_DEVICE_LEN];
+        char StatusTopic[HAAM_DEVICE_LEN + 16];
+
         char _topicBuf[HAAM_TOPIC_LEN];
 
         ItemValue* values;
         uint8_t maxEntityNum;
 
-        HAMQTTCallback* _callbackListener;
-
         void connect();
         void publishConfig(HAEntityBuilder* builder);
+#ifdef MQTT_CALLBACK_FUNCTIONAL
         void MqttCallback(char* topic, byte* payload, unsigned int length);
+#endif
+
         bool _sendSingleValue(int index, bool forceSend = false);
 
         int16_t _lookup(const char* item, bool allocate, bool* isNew = nullptr);
@@ -209,7 +212,15 @@ class HomeAssistantArduinoMQTT {
         unsigned long _lastReconnectAttempt = 0;
         bool _readValuesEnabled = false;
 
+#ifndef MQTT_CALLBACK_FUNCTIONAL
     public:
+#endif
+        char _sanitizedDeviceName[HAAM_DEVICE_LEN];
+        HAMQTTCallback* _callbackListener;
+
+#ifdef MQTT_CALLBACK_FUNCTIONAL
+    public:
+#endif
         const char* MqttUser = "";
         const char* MqttPassword = "";
 
@@ -262,6 +273,7 @@ class HomeAssistantArduinoMQTT {
 
 class HAEntityBuilder {
         friend class HomeAssistantArduinoMQTT;
+
     private:
         HomeAssistantArduinoMQTT* _mqtt;
 
