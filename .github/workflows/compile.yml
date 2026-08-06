@@ -64,6 +64,7 @@ jobs:
           libraries: |
             - source-path: ./
             - name: PubSubClient
+            - name: ArduinoJson
           sketch-paths: |
             - examples
           enable-deltas-report: true
