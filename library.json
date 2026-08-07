@@ -22,7 +22,7 @@
     "url": "https://github.com/Bettapro/HomeAssistantArduinoMQTT.git"
   },
   "frameworks": "arduino",
-  "platforms": ["espressif8266", "espressif32"],
+  "platforms": "*",
   "dependencies": {
     "PubSubClient": ">=2.8"
   }
