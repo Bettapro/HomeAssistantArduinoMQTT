@@ -47,7 +47,7 @@ board = esp32dev
 framework = arduino
 lib_deps =
     knolleary/PubSubClient @ ^2.8.0
-    [https://github.com/Bettapro/HomeAssistantArduinoMQTT.git](https://github.com/Bettapro/HomeAssistantArduinoMQTT.git)
+    https://github.com/Bettapro/HomeAssistantArduinoMQTT.git
 
 ```
 
