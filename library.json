@@ -1,6 +1,6 @@
 {
   "name": "HomeAssistantArduinoMQTT",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Home Assistant MQTT",
   "keywords": [
     "home-assistant",
