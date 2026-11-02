@@ -591,6 +591,12 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
         js.key(HAKeys::UNIT_OF_MEASUREMENT);
         js.str(b->_unit);
     }
+    if (b->_options && b->_optionCount) {
+        js.key(HAKeys::OPTIONS);
+        js.openArr();
+        for (uint8_t i = 0; i < b->_optionCount; i++) js.str(b->_options[i]);
+        js.closeArr();
+    }
 
     for (uint8_t i = 0; i < b->_customPropCount; i++) {
         const HACustomProp& cp = b->_customProps[i];
@@ -820,7 +826,7 @@ void HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* even
 //  HAEntityBuilder
 // ===========================================================================
 HAEntityBuilder::HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name)
-    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _customPropCount(0), _suggestedPrecision(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
+    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _options(nullptr), _optionCount(0), _customPropCount(0), _suggestedPrecision(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
 
 void HAEntityBuilder::category(const char* val) { _category = val; }
 void HAEntityBuilder::deviceClass(const char* val) { _deviceClass = val; }
@@ -840,6 +846,11 @@ void HAEntityBuilder::independentAvailability(bool enable) { _indAvail = enable 
 void HAEntityBuilder::suggestedDisplayPrecision(uint8_t precision) {
     _suggestedPrecision = precision;
     _suggestedPrecisionEnable = 1;
+}
+
+void HAEntityBuilder::options(const char* const* opts, uint8_t count) {
+    _options = opts;
+    _optionCount = opts ? count : 0;
 }
 
 void HAEntityBuilder::set(const char* key, const char* value) {

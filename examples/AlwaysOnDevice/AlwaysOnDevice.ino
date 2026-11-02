@@ -3,8 +3,8 @@
   HomeAssistantArduinoMQTT Library Example
   
   Demonstrates an always-on device (ESP32, ESP8266, AVR, SAMD) connected continuously.
-  Registers a Temperature Sensor, Humidity Sensor, Relay Switch, and Action Button 
-  with Home Assistant Auto-Discovery.
+  Registers a Temperature Sensor, Humidity Sensor, Relay Switch, Action Button
+  and LED Mode Select with Home Assistant Auto-Discovery.
 
   Author: Alberto Bettin
   Repository: https://github.com/Bettapro/HomeAssistantArduinoMQTT
@@ -47,8 +47,12 @@ const uint8_t STATUS_LED  = 13;
 #endif
 const uint8_t RELAY_PIN   = 5;   // GPIO connected to Relay
 
-// Initialize HomeAssistantArduinoMQTT instance with capacity for 4 entities
-HomeAssistantArduinoMQTT haMqtt(4);
+// Initialize HomeAssistantArduinoMQTT instance with capacity for 5 entities
+HomeAssistantArduinoMQTT haMqtt(5);
+
+// Options for the LED Mode select entity
+const char* LED_MODES[] = {"Off", "On", "Blink"};
+uint8_t ledMode = 0; // index into LED_MODES
 
 // ==========================================
 // MULTI-PLATFORM HELPERS
@@ -119,7 +123,6 @@ public:
             if (strcmp(item, "main_relay") == 0) {
                 bool newState = (strcmp(value, "true") == 0);
                 digitalWrite(RELAY_PIN, newState ? HIGH : LOW);
-                digitalWrite(STATUS_LED, newState ? HIGH : LOW);
 
                 // Reflect updated state back to Home Assistant
                 haMqtt.setValue("main_relay", newState ? "true" : "false");
@@ -133,6 +136,20 @@ public:
                 Serial.println(F("Restart Button pressed from Home Assistant! Rebooting..."));
                 delay(500);
                 rebootDevice();
+            }
+            // Handle LED Mode select command
+            else if (strcmp(item, "led_mode") == 0) {
+                for (uint8_t i = 0; i < sizeof(LED_MODES) / sizeof(LED_MODES[0]); i++) {
+                    if (strcmp(value, LED_MODES[i]) == 0) {
+                        ledMode = i;
+                        haMqtt.setValue("led_mode", LED_MODES[i]);
+                        haMqtt.sendValue("led_mode");
+
+                        Serial.print(F("LED mode updated to: "));
+                        Serial.println(LED_MODES[i]);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -176,6 +193,22 @@ void setupEntities() {
     restartBtn.icon("mdi:restart");
     restartBtn.category("diagnostic");
     restartBtn.publish();
+
+    // 5. LED Mode Select
+    HAEntityBuilder ledModeSelect = haMqtt.newSelectEntity("led_mode", "Status LED Mode");
+    ledModeSelect.options(LED_MODES);
+    ledModeSelect.icon("mdi:led-on");
+    ledModeSelect.startup(LED_MODES[ledMode]);
+    ledModeSelect.publish();
+}
+
+void updateStatusLed() {
+    if (ledMode == 2) {
+        // Blink: toggle every 500 ms
+        digitalWrite(STATUS_LED, (millis() / 500) % 2 ? HIGH : LOW);
+    } else {
+        digitalWrite(STATUS_LED, ledMode == 1 ? HIGH : LOW);
+    }
 }
 
 // Simulated sensor reading functions
@@ -229,6 +262,9 @@ void loop() {
 
     // Process MQTT loop (handles reconnection and incoming command callbacks)
     haMqtt.loop();
+
+    // Drive the status LED according to the selected mode
+    updateStatusLed();
 
     // Non-blocking timer for reading and sending sensor values
     unsigned long currentMillis = millis();

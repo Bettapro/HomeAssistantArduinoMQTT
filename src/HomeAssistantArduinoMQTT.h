@@ -100,6 +100,7 @@ const char STATE_CLASS[] PROGMEM = "stat_cla";
 const char ICON[] PROGMEM = "ic";
 const char UNIT_OF_MEASUREMENT[] PROGMEM = "unit_of_meas";
 const char SUGGESTED_DISPLAY_PRECISION[] PROGMEM = "sug_dsp_prc";
+const char OPTIONS[] PROGMEM = "ops";
 
 const char AVAILABILITY_MODE[] PROGMEM = "avty_mode";
 const char AVAILABILITY_MODE_ALL[] PROGMEM = "all";
@@ -289,6 +290,9 @@ class HAEntityBuilder {
         const char* _icon;
         const char* _unit;
 
+        const char* const* _options;
+        uint8_t _optionCount;
+
         HACustomProp _customProps[HAAM_MAX_CUSTOM_PROPS];
         uint8_t _customPropCount;
 
@@ -311,6 +315,9 @@ class HAEntityBuilder {
         void startup(const char* val);
         void independentAvailability(bool enable = true);
         void suggestedDisplayPrecision(uint8_t precision);
+        void options(const char* const* opts, uint8_t count);
+        template <size_t N>
+        void options(const char* const (&opts)[N]) { options(opts, (uint8_t)N); }
 
         void set(const char* key, const char* value);
         void set(const char* key, int value);

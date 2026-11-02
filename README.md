@@ -176,6 +176,22 @@ humidity.set("max", 100);                 // Custom JSON property (int)
 humidity.publish();                       // Transmits Home Assistant Discovery JSON
 ```
 
+#### Select Entities
+
+A select requires a list of options. Pass a `const char*` array (it must stay valid until `.publish()` is called):
+
+```cpp
+const char* modes[] = {"Off", "Eco", "Comfort"};
+
+HAEntityBuilder mode = haMqtt.newSelectEntity("mode", "Heating Mode");
+mode.options(modes);                      // or mode.options(modes, 3);
+mode.icon("mdi:radiator");
+mode.startup("Off");
+mode.publish();
+```
+
+When an option is chosen in Home Assistant, `onMQTTMessage` receives the option text as `value` (with `isState == false`). Reflect it back with `setValue("mode", value)` + `sendValue("mode")`.
+
 ---
 
 ### 3. Updating & Transmitting States
