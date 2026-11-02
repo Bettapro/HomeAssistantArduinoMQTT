@@ -1,6 +1,6 @@
 {
   "name": "HomeAssistantArduinoMQTT",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Home Assistant MQTT",
   "keywords": [
     "home-assistant",
@@ -22,7 +22,7 @@
     "url": "https://github.com/Bettapro/HomeAssistantArduinoMQTT.git"
   },
   "frameworks": "arduino",
-  "platforms": ["espressif8266", "espressif32"],
+  "platforms": "*",
   "dependencies": {
     "PubSubClient": ">=2.8"
   }
