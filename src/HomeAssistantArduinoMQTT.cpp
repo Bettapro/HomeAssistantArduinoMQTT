@@ -319,7 +319,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     memcpy(cPayload, payload, copyLen);
     cPayload[copyLen] = '\0';
 
-    if (isState) _myHaamInstance->setValue(item, cPayload, false);
+    // retained state echoed by the broker: keep the value, do not touch availability
+    if (isState) _myHaamInstance->_storeValue(item, cPayload, false);
     if (_myHaamInstance->_callbackListener != nullptr) _myHaamInstance->_callbackListener->onMQTTMessage(item, cPayload, isState);
 }
 
@@ -681,15 +682,23 @@ void HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
     }
 
     int16_t slot = _lookup(entityId, true);
-    if (slot >= 0) {
-        values[slot].isConfigured = 1;
-        values[slot].hasIndAvail = builder->_indAvail ? 1 : 0;
+    if (slot < 0) return;
+
+    bool wasConfigured = values[slot].isConfigured;
+    values[slot].isConfigured = 1;
+    values[slot].hasIndAvail = builder->_indAvail ? 1 : 0;
+
+    // a value stored before publish() (e.g. deep sleep) or since a previous publish() wins over startup()
+    bool hasStored = builder->_stateTopic && values[slot].value[0] != '\0';
+    bool hasStartup = builder->_stateTopic && !isEmptyStr(builder->_startupValue);
+
+    if (hasStartup && !hasStored) {
+        setValue(entityId, builder->_startupValue);
+    } else if (!wasConfigured && builder->_indAvail) {
+        // first publish(): initial availability; later ones keep what the application set.
+        // Entities without a state (e.g. buttons) have no value to wait for: start available.
+        setEntityAvailability(entityId, hasStored || !builder->_stateTopic);
     }
-
-    bool hasValue = builder->_stateTopic && !isEmptyStr(builder->_startupValue);
-
-    if (builder->_indAvail) setEntityAvailability(entityId, hasValue);
-    if (hasValue) setValue(entityId, builder->_startupValue);
 }
 
 void HomeAssistantArduinoMQTT::clearSetTopic(const char* item) {
@@ -702,12 +711,12 @@ void HomeAssistantArduinoMQTT::clearSetTopic(const char* item) {
     mqttClient->publish(_topicBuf, "", false);
 }
 
-void HomeAssistantArduinoMQTT::setValue(const char* item, const char* value, bool markAsChanged) {
+int16_t HomeAssistantArduinoMQTT::_storeValue(const char* item, const char* value, bool markAsChanged) {
     if (!value) value = "";
 
     bool isNew = false;
     int16_t i = _lookup(item, true, &isNew);
-    if (i < 0) return;
+    if (i < 0) return -1;
 
     ItemValue& v = values[i];
 
@@ -718,18 +727,34 @@ void HomeAssistantArduinoMQTT::setValue(const char* item, const char* value, boo
         v.isFirstValue = 1;
         v.isConfigured = 0;
         v.availabilitySent = 0;
-        return;
+        return i;
     }
 
     if (strcmp(v.value, value) != 0) {
         copyStr(v.value, sizeof(v.value), value);
         if (markAsChanged) v.valueChanged = 1;
     }
+    return i;
+}
+
+void HomeAssistantArduinoMQTT::setValue(const char* item, const char* value, bool markAsChanged) {
+    int16_t i = _storeValue(item, value, markAsChanged);
+    if (i < 0) return;
+
+    // a value means the entity is available, an empty value means it is not
+    _setAvailable(i, values[i].value[0] != '\0');
 }
 
 const char* HomeAssistantArduinoMQTT::getValue(const char* item) {
     int16_t i = _lookup(item, false);
     return (i >= 0) ? values[i].value : "";
+}
+
+void HomeAssistantArduinoMQTT::_setAvailable(int16_t i, bool isAvailable) {
+    if ((bool)values[i].lastAvailable != isAvailable) {
+        values[i].lastAvailable = isAvailable ? 1 : 0;
+        values[i].availabilitySent = 0;
+    }
 }
 
 void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool isAvailable) {
@@ -740,9 +765,8 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
     if (isNew) {
         values[i].lastAvailable = isAvailable ? 1 : 0;
         values[i].availabilitySent = 0;
-    } else if ((bool)values[i].lastAvailable != isAvailable) {
-        values[i].lastAvailable = isAvailable ? 1 : 0;
-        values[i].availabilitySent = 0;
+    } else {
+        _setAvailable(i, isAvailable);
     }
 }
 
@@ -757,32 +781,22 @@ void HomeAssistantArduinoMQTT::readValues() {
 bool HomeAssistantArduinoMQTT::_sendSingleValue(int i, bool force) {
     ItemValue& v = values[i];
 
-    if (v.value[0] == '\0') {
-        if (v.hasIndAvail && (force || !v.availabilitySent || v.lastAvailable)) {
-            _valueTopic(v.item, false, HAKeys::AVAILABILITY, true);
-            if (!mqttClient->publish_P(_topicBuf, (const uint8_t*)HAKeys::OFFLINE_PAYLOAD, strlen_P(HAKeys::OFFLINE_PAYLOAD), true)) {
-                return false;
-            }
-            v.availabilitySent = 1;
-            v.lastAvailable = 0;
-        }
-        return true;
-    }
-
-    if (force || v.valueChanged || v.isFirstValue) {
+    // state: only when there is a value to send
+    if (v.value[0] != '\0' && (force || v.valueChanged || v.isFirstValue)) {
         _valueTopic(v.item, false, HAKeys::TOPIC_STATE, false);
         if (!mqttClient->publish(_topicBuf, v.value, true)) return false;
         v.isFirstValue = 0;
         v.valueChanged = 0;
     }
 
-    if (v.hasIndAvail && (force || !v.availabilitySent || !v.lastAvailable)) {
+    // availability: exactly as requested by setValue / setEntityAvailability
+    if (v.hasIndAvail && (force || !v.availabilitySent)) {
+        const char* payloadP = v.lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
         _valueTopic(v.item, false, HAKeys::AVAILABILITY, true);
-        if (!mqttClient->publish_P(_topicBuf, (const uint8_t*)HAKeys::ONLINE_PAYLOAD, strlen_P(HAKeys::ONLINE_PAYLOAD), true)) {
+        if (!mqttClient->publish_P(_topicBuf, (const uint8_t*)payloadP, strlen_P(payloadP), true)) {
             return false;
         }
         v.availabilitySent = 1;
-        v.lastAvailable = 1;
     }
 
     return true;

@@ -215,6 +215,24 @@ haMqtt.sendValue("temp");
 const char* val = haMqtt.getValue("temp");
 ```
 
+#### Entity Availability
+
+Entities with `independentAvailability(true)` (the default for the `newXxxEntity()` helpers) have their own `avty` topic. Availability and value are independent:
+
+* `setValue(id, "...")` with a non-empty value marks the entity **available**; an empty value (or `nullptr`) marks it **unavailable**.
+* `setEntityAvailability(id, false)` marks the entity **unavailable** and keeps its value (`getValue()` still returns it). The next `setValue()` makes it available again, even with the same value.
+* `setEntityAvailability(id, true)` marks it available, also without a value (Home Assistant then shows "unknown").
+* On the first `publish()`, an entity is available if it already has a value (set before `publish()`) or a `startup()` value. Entities without a state topic (e.g. buttons) start available. Later `publish()` calls do not change availability or overwrite a stored value with `startup()`.
+* With `useSharedAvailability` (default), an entity is also unavailable whenever the device is offline (LWT).
+* States received via `readValues()` update the stored value but never availability.
+
+```cpp
+// e.g. a sensor read over a bus that can fail
+if (readOk) haMqtt.setValue("temp", buf);
+else        haMqtt.setEntityAvailability("temp", false);
+haMqtt.sendValue("temp");
+```
+
 ---
 
 ### 4. Handling Commands & Subscriptions

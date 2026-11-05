@@ -205,6 +205,7 @@ class HomeAssistantArduinoMQTT {
 #endif
 
         bool _sendSingleValue(int index, bool forceSend = false);
+        void _setAvailable(int16_t index, bool isAvailable);
 
         int16_t _lookup(const char* item, bool allocate, bool* isNew = nullptr);
         void _valueTopic(const char* a, bool aPgm, const char* b, bool bPgm);
@@ -216,6 +217,7 @@ class HomeAssistantArduinoMQTT {
 #ifndef MQTT_CALLBACK_FUNCTIONAL
     public:
 #endif
+        int16_t _storeValue(const char* item, const char* value, bool markAsChanged);
         char _sanitizedDeviceName[HAAM_DEVICE_LEN];
         HAMQTTCallback* _callbackListener;
 
