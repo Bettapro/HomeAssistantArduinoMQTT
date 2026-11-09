@@ -10,6 +10,9 @@ HomeAssistantArduinoMQTT	KEYWORD1
 HAEntityBuilder	KEYWORD1
 HAMQTTCallback	KEYWORD1
 HAAMFmt	KEYWORD1
+HAAMDevice	KEYWORD1
+HAAMDeviceDeclarer	KEYWORD1
+HAAMEntity	KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
@@ -30,7 +33,17 @@ sendCommand	KEYWORD2
 sendEvent	KEYWORD2
 clearSetTopic	KEYWORD2
 setEntityAvailability	KEYWORD2
+getEntity	KEYWORD2
+entityDevice	KEYWORD2
+entityId	KEYWORD2
+isValid	KEYWORD2
 sanitizeID	KEYWORD2
+addDevice	KEYWORD2
+getDevice	KEYWORD2
+deviceCount	KEYWORD2
+setDeviceAvailability	KEYWORD2
+publishDevice	KEYWORD2
+useAvailability	KEYWORD2
 
 # Entity Factory Methods
 newEntity	KEYWORD2
@@ -59,14 +72,14 @@ publish	KEYWORD2
 onMQTTMessage	KEYWORD2
 
 # Configurable Properties
-MQTTDeviceName	KEYWORD2
-HADeviceName	KEYWORD2
-Manufacturer	KEYWORD2
-Model	KEYWORD2
-Version	KEYWORD2
-ConfigurationUrl	KEYWORD2
-MqttUser	KEYWORD2
-MqttPassword	KEYWORD2
+mqttDeviceName	KEYWORD2
+haDeviceName	KEYWORD2
+manufacturer	KEYWORD2
+model	KEYWORD2
+version	KEYWORD2
+configurationUrl	KEYWORD2
+mqttUser	KEYWORD2
+mqttPassword	KEYWORD2
 useSharedAvailability	KEYWORD2
 prefixUniqueIds	KEYWORD2
 enableConfigPublishing	KEYWORD2
@@ -90,3 +103,9 @@ HAAM_DEVICE_LEN	LITERAL1
 HAAM_TOPIC_LEN	LITERAL1
 HAAM_PAYLOAD_LEN	LITERAL1
 HAAM_MAX_CUSTOM_PROPS	LITERAL1
+HAAM_MAX_DEVICES	LITERAL1
+HAAM_DEVICE_DISCOVERY	LITERAL1
+HAAM_NO_COMMANDS	LITERAL1
+HAAM_MULTI_DEVICE	LITERAL1
+HAAM_ROOT_DEVICE	LITERAL1
+HAAM_NO_DEVICE	LITERAL1

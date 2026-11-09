@@ -6,7 +6,7 @@ on:
       - master
       # - master  # Decommenta se il tuo repository usa ancora 'master'
     paths:
-      - ".github/workflows/compile-examples.yml"
+      - ".github/workflows/compile.yml"
       - "library.properties"
       - "examples/**"
       - "src/**"
@@ -67,9 +67,48 @@ jobs:
             - name: ArduinoJson
             - name: Ethernet
           sketch-paths: |
-            - examples
+            - examples/AlwaysOnDevice
+            - examples/DeepSleepDevice
           enable-deltas-report: true
           sketches-report-path: ${{ env.SKETCHES_REPORTS_PATH }}
+
+      # multi-device + device discovery: the flags must reach the library too,
+      # so they are passed as a build property instead of a #define in the sketch
+      - name: Compile examples (multi-device + device discovery)
+        uses: arduino/compile-sketches@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fqbn: ${{ matrix.board.fqbn }}
+          platforms: ${{ matrix.board.platforms }}
+          libraries: |
+            - source-path: ./
+            - name: PubSubClient
+            - name: ArduinoJson
+            - name: Ethernet
+          sketch-paths: |
+            - examples/GatewayMultiDevice
+          cli-compile-flags: |
+            - --build-property
+            - compiler.cpp.extra_flags=-DHAAM_MAX_DEVICES=3 -DHAAM_DEVICE_DISCOVERY
+          sketches-report-path: sketches-reports-multidevice
+
+      - name: Compile examples (publish-only, HAAM_NO_COMMANDS)
+        uses: arduino/compile-sketches@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fqbn: ${{ matrix.board.fqbn }}
+          platforms: ${{ matrix.board.platforms }}
+          libraries: |
+            - source-path: ./
+            - name: PubSubClient
+            - name: ArduinoJson
+            - name: Ethernet
+          sketch-paths: |
+            - examples/DeepSleepDevice
+          cli-compile-flags: |
+            - --build-property
+            - compiler.cpp.extra_flags=-DHAAM_NO_COMMANDS
+          sketches-report-path: sketches-reports-nocommands
 
       - name: Save sketches report as workflow artifact
         uses: actions/upload-artifact@v4

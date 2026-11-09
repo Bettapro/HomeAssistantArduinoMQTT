@@ -121,16 +121,19 @@ void setup() {
     }
 
     // 3. Configure MQTT Device settings
-    haMqtt.MQTTDeviceName = "garden_climate_node";
-    haMqtt.HADeviceName   = "Garden Climate Sensor";
-    haMqtt.Manufacturer   = "Custom DIY";
-    haMqtt.Model          = "ESP-DeepSleep-Sensors";
-    haMqtt.Version        = "1.0.0";
-    haMqtt.MqttUser       = MQTT_USER;
-    haMqtt.MqttPassword   = MQTT_PASS;
+    haMqtt.mqttDeviceName = "garden_climate_node";
+    haMqtt.haDeviceName   = "Garden Climate Sensor";
+    haMqtt.manufacturer   = "Custom DIY";
+    haMqtt.model          = "ESP-DeepSleep-Sensors";
+    haMqtt.version        = "1.0.0";
+    haMqtt.mqttUser       = MQTT_USER;
+    haMqtt.mqttPassword   = MQTT_PASS;
     
-    // Command subscription is disabled for deep sleep device to save network overhead
+    // Command subscription is disabled for deep sleep device to save network overhead.
+    // Building with -DHAAM_NO_COMMANDS removes the command code entirely (smaller firmware).
+#ifndef HAAM_NO_COMMANDS
     haMqtt.commandEnabled = false;
+#endif
 
     // Initialize MQTT client
     haMqtt.begin(netClient, MQTT_BROKER, MQTT_PORT);

@@ -54,6 +54,13 @@ HomeAssistantArduinoMQTT haMqtt(5);
 const char* LED_MODES[] = {"Off", "On", "Blink"};
 uint8_t ledMode = 0; // index into LED_MODES
 
+// Entity handles, returned by publish(): setValue()/sendValue() with a handle
+// reach the entity directly, without searching it by name
+HAAMEntity temperatureEntity;
+HAAMEntity humidityEntity;
+HAAMEntity relayEntity;
+HAAMEntity ledModeEntity;
+
 // ==========================================
 // MULTI-PLATFORM HELPERS
 // ==========================================
@@ -125,8 +132,8 @@ public:
                 digitalWrite(RELAY_PIN, newState ? HIGH : LOW);
 
                 // Reflect updated state back to Home Assistant
-                haMqtt.setValue("main_relay", newState ? "true" : "false");
-                haMqtt.sendValue("main_relay");
+                haMqtt.setValue(relayEntity, newState ? "true" : "false");
+                haMqtt.sendValue(relayEntity);
                 
                 Serial.print(F("Relay state updated to: "));
                 Serial.println(newState ? "ON" : "OFF");
@@ -142,8 +149,8 @@ public:
                 for (uint8_t i = 0; i < sizeof(LED_MODES) / sizeof(LED_MODES[0]); i++) {
                     if (strcmp(value, LED_MODES[i]) == 0) {
                         ledMode = i;
-                        haMqtt.setValue("led_mode", LED_MODES[i]);
-                        haMqtt.sendValue("led_mode");
+                        haMqtt.setValue(ledModeEntity, LED_MODES[i]);
+                        haMqtt.sendValue(ledModeEntity);
 
                         Serial.print(F("LED mode updated to: "));
                         Serial.println(LED_MODES[i]);
@@ -171,7 +178,7 @@ void setupEntities() {
     tempSensor.unit("°C");
     tempSensor.icon("mdi:thermometer");
     tempSensor.suggestedDisplayPrecision(1);
-    tempSensor.publish();
+    temperatureEntity = tempSensor.publish();
 
     // 2. Humidity Sensor
     HAEntityBuilder humSensor = haMqtt.newSensorEntity("humidity", "Room Humidity");
@@ -180,13 +187,13 @@ void setupEntities() {
     humSensor.unit("%");
     humSensor.icon("mdi:water-percent");
     humSensor.suggestedDisplayPrecision(1);
-    humSensor.publish();
+    humidityEntity = humSensor.publish();
 
     // 3. Relay Switch
     HAEntityBuilder mainRelay = haMqtt.newSwitchEntity("main_relay", "Main Power Relay");
     mainRelay.icon("mdi:power-socket-eu");
     mainRelay.startup("false");
-    mainRelay.publish();
+    relayEntity = mainRelay.publish();
 
     // 4. Restart Button
     HAEntityBuilder restartBtn = haMqtt.newButtonEntity("restart_btn", "Restart Device");
@@ -199,7 +206,7 @@ void setupEntities() {
     ledModeSelect.options(LED_MODES);
     ledModeSelect.icon("mdi:led-on");
     ledModeSelect.startup(LED_MODES[ledMode]);
-    ledModeSelect.publish();
+    ledModeEntity = ledModeSelect.publish();
 }
 
 void updateStatusLed() {
@@ -236,22 +243,19 @@ void setup() {
     connectNetwork();
 
     // Device metadata
-    haMqtt.MQTTDeviceName = "climate_node_01";
-    haMqtt.HADeviceName   = "Climate & Control Node";
-    haMqtt.Manufacturer   = "Custom DIY";
-    haMqtt.Model          = "MultiArch-AlwaysOn-Node";
-    haMqtt.Version        = "1.0.0";
-    haMqtt.MqttUser       = MQTT_USER;
-    haMqtt.MqttPassword   = MQTT_PASS;
+    haMqtt.mqttDeviceName = "climate_node_01";
+    haMqtt.haDeviceName   = "Climate & Control Node";
+    haMqtt.manufacturer   = "Custom DIY";
+    haMqtt.model          = "MultiArch-AlwaysOn-Node";
+    haMqtt.version        = "1.0.0";
+    haMqtt.mqttUser       = MQTT_USER;
+    haMqtt.mqttPassword   = MQTT_PASS;
 
     // Set callback listener for incoming Home Assistant commands
     haMqtt.setCallback(&mqttCallbackHandler);
 
-    // Initialize MQTT client connection
+    // Initialize MQTT client (the connection is opened by haMqtt.loop())
     haMqtt.begin(netClient, MQTT_BROKER, MQTT_PORT);
-
-    // Register entities with Home Assistant Discovery
-    setupEntities();
 }
 
 void loop() {
@@ -262,6 +266,14 @@ void loop() {
 
     // Process MQTT loop (handles reconnection and incoming command callbacks)
     haMqtt.loop();
+
+    // Publish the Home Assistant Discovery entities on every new connection:
+    // publish() sends nothing while offline, and the broker may have lost
+    // the retained configs while we were disconnected
+    static bool wasConnected = false;
+    bool isConnected = haMqtt.connected();
+    if (isConnected && !wasConnected) setupEntities();
+    wasConnected = isConnected;
 
     // Drive the status LED according to the selected mode
     updateStatusLed();
@@ -279,11 +291,11 @@ void loop() {
 
             // Format and update Temperature
             HAAM_FORMAT_FLOAT(strBuf, temp, 1);
-            haMqtt.setValue("temperature", strBuf);
+            haMqtt.setValue(temperatureEntity, strBuf);
 
             // Format and update Humidity
             HAAM_FORMAT_FLOAT(strBuf, hum, 1);
-            haMqtt.setValue("humidity", strBuf);
+            haMqtt.setValue(humidityEntity, strBuf);
 
             // Transmit changed sensor values to MQTT
             haMqtt.sendValues();
