@@ -171,40 +171,48 @@ const unsigned long SENSOR_READ_INTERVAL = 10000; // Read sensors every 10 secon
 void setupEntities() {
     Serial.println(F("Publishing Home Assistant Auto-Discovery entities..."));
 
+    // Strings passed with F("...") stay in flash: on AVR (2 KB of RAM) and
+    // ESP8266 a plain "..." literal is also copied to RAM.
+
     // 1. Temperature Sensor
-    HAEntityBuilder tempSensor = haMqtt.newSensorEntity("temperature", "Room Temperature");
-    tempSensor.deviceClass("temperature");
-    tempSensor.stateClass("measurement");
-    tempSensor.unit("°C");
-    tempSensor.icon("mdi:thermometer");
+    HAEntityBuilder tempSensor = haMqtt.newSensorEntity("temperature");
+    tempSensor.name(F("Room Temperature"));
+    tempSensor.deviceClass(F("temperature"));
+    tempSensor.stateClass(F("measurement"));
+    tempSensor.unit(F("°C"));
+    tempSensor.icon(F("mdi:thermometer"));
     tempSensor.suggestedDisplayPrecision(1);
     temperatureEntity = tempSensor.publish();
 
     // 2. Humidity Sensor
-    HAEntityBuilder humSensor = haMqtt.newSensorEntity("humidity", "Room Humidity");
-    humSensor.deviceClass("humidity");
-    humSensor.stateClass("measurement");
-    humSensor.unit("%");
-    humSensor.icon("mdi:water-percent");
+    HAEntityBuilder humSensor = haMqtt.newSensorEntity("humidity");
+    humSensor.name(F("Room Humidity"));
+    humSensor.deviceClass(F("humidity"));
+    humSensor.stateClass(F("measurement"));
+    humSensor.unit(F("%"));
+    humSensor.icon(F("mdi:water-percent"));
     humSensor.suggestedDisplayPrecision(1);
     humidityEntity = humSensor.publish();
 
     // 3. Relay Switch
-    HAEntityBuilder mainRelay = haMqtt.newSwitchEntity("main_relay", "Main Power Relay");
-    mainRelay.icon("mdi:power-socket-eu");
-    mainRelay.startup("false");
+    HAEntityBuilder mainRelay = haMqtt.newSwitchEntity("main_relay");
+    mainRelay.name(F("Main Power Relay"));
+    mainRelay.icon(F("mdi:power-socket-eu"));
+    mainRelay.startup(F("false"));
     relayEntity = mainRelay.publish();
 
     // 4. Restart Button
-    HAEntityBuilder restartBtn = haMqtt.newButtonEntity("restart_btn", "Restart Device");
-    restartBtn.icon("mdi:restart");
-    restartBtn.category("diagnostic");
+    HAEntityBuilder restartBtn = haMqtt.newButtonEntity("restart_btn");
+    restartBtn.name(F("Restart Device"));
+    restartBtn.icon(F("mdi:restart"));
+    restartBtn.category(F("diagnostic"));
     restartBtn.publish();
 
     // 5. LED Mode Select
-    HAEntityBuilder ledModeSelect = haMqtt.newSelectEntity("led_mode", "Status LED Mode");
+    HAEntityBuilder ledModeSelect = haMqtt.newSelectEntity("led_mode");
+    ledModeSelect.name(F("Status LED Mode"));
     ledModeSelect.options(LED_MODES);
-    ledModeSelect.icon("mdi:led-on");
+    ledModeSelect.icon(F("mdi:led-on"));
     ledModeSelect.startup(LED_MODES[ledMode]);
     ledModeEntity = ledModeSelect.publish();
 }

@@ -20,6 +20,10 @@ size_t appPgm(char* d, size_t cap, size_t p, const char* sP) {
     return p;
 }
 
+inline size_t appX(char* d, size_t cap, size_t p, const char* s, bool pgm) {
+    return pgm ? appPgm(d, cap, p, s) : appRam(d, cap, p, s);
+}
+
 void copyStr(char* dst, size_t cap, const char* src) {
     size_t p = 0;
     if (!cap) return;
@@ -33,31 +37,34 @@ void copyStr(char* dst, size_t cap, const char* src) {
 
 inline bool isEmptyStr(const char* s) { return s == nullptr || s[0] == '\0'; }
 
+inline bool isEmptyX(const char* s, bool pgm) {
+    return s == nullptr || (pgm ? pgm_read_byte(s) == 0 : s[0] == '\0');
+}
+
+// "haam/<dev>/<a>[/<b>]" as a JSON string
 void writeTopicValue(HAJsonStream& js, const char* dev,
                      const char* a, bool aPgm,
                      const char* b, bool bPgm) {
     js.strBegin();
-    js.strAdd(HAKeys::VALUE_TOPIC_PREFIX);
+    js.strAddP(HAKeys::VALUE_TOPIC_PREFIX);
     js.strAddChar('/');
     js.strAdd(dev);
     js.strAddChar('/');
-    if (aPgm)
-        js.strAddP(a);
-    else
-        js.strAdd(a);
+    js.strAddX(a, aPgm);
     if (b) {
         js.strAddChar('/');
-        if (bPgm)
-            js.strAddP(b);
-        else
-            js.strAdd(b);
+        js.strAddX(b, bPgm);
     }
     js.strEnd();
 }
 
 }  // namespace
 
+// ===========================================================================
+//  Formatters
+// ===========================================================================
 int HAAMFmt::uintToBuf(char* buf, size_t size, unsigned long val) {
+    if (!size) return 0;
     char tmp[11];
     uint8_t n = 0;
     do {
@@ -65,24 +72,32 @@ int HAAMFmt::uintToBuf(char* buf, size_t size, unsigned long val) {
         val /= 10;
     } while (val);
 
-    size_t p = 0;
-    if (size) {
-        while (n && p + 1 < size) buf[p++] = tmp[--n];
-        buf[p] = '\0';
+    if ((size_t)n + 1 > size) {  // does not fit: no truncated number
+        buf[0] = '\0';
+        return 0;
     }
+    size_t p = 0;
+    while (n) buf[p++] = tmp[--n];
+    buf[p] = '\0';
     return (int)p;
 }
 
 int HAAMFmt::strToBuf(char* buf, size_t size, const char* val) {
-    size_t p = 0;
     if (!size) return 0;
-    if (val)
-        while (val[p] && p + 1 < size) {
-            buf[p] = val[p];
-            p++;
-        }
+    size_t p = appRam(buf, size, 0, val);
     buf[p] = '\0';
     return (int)p;
+}
+
+int HAAMFmt::boolToBuf(char* buf, size_t size, bool val) {
+    if (!size) return 0;
+    const char* sP = val ? HAKeys::VAL_TRUE : HAKeys::VAL_FALSE;
+    if (strlen_P(sP) + 1 > size) {
+        buf[0] = '\0';
+        return 0;
+    }
+    strcpy_P(buf, sP);
+    return (int)strlen(buf);
 }
 
 int HAAMFmt::floatToBuf(char* buf, size_t size, double val, uint8_t dec) {
@@ -106,15 +121,22 @@ int HAAMFmt::floatToBuf(char* buf, size_t size, double val, uint8_t dec) {
 
     unsigned long n = (unsigned long)scaled;
     size_t p = 0;
-    if (neg && n != 0 && size > 1) buf[p++] = '-';  // no "-0.0"
-    p += HAAMFmt::uintToBuf(buf + p, size - p, n / mul);
+    if (neg && n != 0) buf[p++] = '-';  // no "-0.0"
+    if (p + 1 >= size) {
+        buf[0] = '\0';
+        return 0;
+    }
+    int w = HAAMFmt::uintToBuf(buf + p, size - p, n / mul);
+    if (w == 0 || p + w + (dec ? dec + 1u : 0u) + 1 > size) {  // does not fit
+        buf[0] = '\0';
+        return 0;
+    }
+    p += w;
 
-    if (dec && p + 1 < size) {
+    if (dec) {
         buf[p++] = '.';
         unsigned long frac = n % mul;
-        for (unsigned long d = mul / 10; d && p + 1 < size; d /= 10) {
-            buf[p++] = (char)('0' + (frac / d) % 10);
-        }
+        for (unsigned long d = mul / 10; d; d /= 10) buf[p++] = (char)('0' + (frac / d) % 10);
     }
     buf[p] = '\0';
     return (int)p;
@@ -124,7 +146,7 @@ int HAAMFmt::floatToBuf(char* buf, size_t size, double val, uint8_t dec) {
 //  HAJsonStream
 // ===========================================================================
 HAJsonStream::HAJsonStream(Print* out)
-    : _out(out), _len(0), _n(0), _first(true), _afterKey(false) {}
+    : _out(out), _len(0), _n(0), _first(true), _afterKey(false), _err(false) {}
 
 void HAJsonStream::put(char c) {
     _len++;
@@ -134,7 +156,7 @@ void HAJsonStream::put(char c) {
 }
 
 void HAJsonStream::flush() {
-    if (_out && _n) _out->write((const uint8_t*)_buf, _n);
+    if (_out && _n && _out->write((const uint8_t*)_buf, _n) != _n) _err = true;
     _n = 0;
 }
 
@@ -144,31 +166,27 @@ void HAJsonStream::putP(const char* sP) {
 }
 
 void HAJsonStream::esc(char c) {
+    char e;
     switch (c) {
         case '"':
-            put('\\');
-            put('"');
-            break;
         case '\\':
-            put('\\');
-            put('\\');
+            e = c;
             break;
         case '\n':
-            put('\\');
-            put('n');
+            e = 'n';
             break;
         case '\r':
-            put('\\');
-            put('r');
+            e = 'r';
             break;
         case '\t':
-            put('\\');
-            put('t');
+            e = 't';
             break;
         default:
             if ((uint8_t)c >= 0x20) put(c);
-            break;
+            return;
     }
+    put('\\');
+    put(e);
 }
 
 void HAJsonStream::sep() {
@@ -199,25 +217,17 @@ void HAJsonStream::closeArr() {
     _first = false;
 }
 
-void HAJsonStream::key(const char* keyP) {
+void HAJsonStream::keyX(const char* s, bool pgm) {
     if (!_first) put(',');
     _first = false;
     put('"');
-    putP(keyP);
+    strAddX(s, pgm);
     put('"');
     put(':');
     _afterKey = true;
 }
-
-void HAJsonStream::keyStr(const char* s) {
-    if (!_first) put(',');
-    _first = false;
-    put('"');
-    strAdd(s);
-    put('"');
-    put(':');
-    _afterKey = true;
-}
+void HAJsonStream::key(const char* keyP) { keyX(keyP, true); }
+void HAJsonStream::keyStr(const char* s) { keyX(s, false); }
 
 void HAJsonStream::strBegin() {
     sep();
@@ -225,125 +235,64 @@ void HAJsonStream::strBegin() {
 }
 void HAJsonStream::strEnd() { put('"'); }
 void HAJsonStream::strAddChar(char c) { esc(c); }
-void HAJsonStream::strAdd(const char* s) {
-    if (s)
-        while (*s) esc(*s++);
-}
-void HAJsonStream::strAddP(const char* sP) {
-    if (!sP) return;
+void HAJsonStream::strAddX(const char* s, bool pgm) {
+    if (!s) return;
     char c;
-    while ((c = (char)pgm_read_byte(sP++)) != '\0') esc(c);
+    while ((c = pgm ? (char)pgm_read_byte(s) : *s) != '\0') {
+        esc(c);
+        s++;
+    }
 }
+void HAJsonStream::strAdd(const char* s) { strAddX(s, false); }
+void HAJsonStream::strAddP(const char* sP) { strAddX(sP, true); }
 
-void HAJsonStream::str(const char* s) {
+void HAJsonStream::strX(const char* s, bool pgm) {
     strBegin();
-    strAdd(s);
+    strAddX(s, pgm);
     strEnd();
 }
-void HAJsonStream::strP(const char* sP) {
-    strBegin();
-    strAddP(sP);
-    strEnd();
-}
+void HAJsonStream::str(const char* s) { strX(s, false); }
+void HAJsonStream::strP(const char* sP) { strX(sP, true); }
 
 void HAJsonStream::num(long v) {
     sep();
+    unsigned long u = (unsigned long)v;
     if (v < 0) {
         put('-');
-        v = -v;
+        u = 0UL - u;  // also correct for LONG_MIN
     }
     char tmp[11];
-    uint8_t n = 0;
-    do {
-        tmp[n++] = (char)('0' + (v % 10));
-        v /= 10;
-    } while (v);
-    while (n) put(tmp[--n]);
+    HAAMFmt::uintToBuf(tmp, sizeof(tmp), u);
+    for (const char* c = tmp; *c; c++) put(*c);
 }
 
 void HAJsonStream::boolean(bool v) {
     sep();
-    putP(v ? PSTR("true") : PSTR("false"));
+    putP(v ? HAKeys::VAL_TRUE : HAKeys::VAL_FALSE);
 }
 
 // ===========================================================================
 //  HomeAssistantArduinoMQTT
 // ===========================================================================
 
-namespace {
-
-typedef void (*EntityInit)(HAEntityBuilder& b);
-
-HAEntityBuilder makeEntity(HomeAssistantArduinoMQTT* ha, uint8_t dev, const char* type,
-                           const char* id, const char* name, EntityInit init) {
-    HAEntityBuilder b(ha, type, id, name, dev);
-    if (init) init(b);
-    return b;
-}
-
-void initSensor(HAEntityBuilder& b) {
-    b.state(true);
-    b.independentAvailability(true);
-}
-
-void initBinarySensor(HAEntityBuilder& b) {
-    b.independentAvailability(true);
-    b.state(true);
-    b.set(HAKeys::PAYLOAD_ON, HAKeys::VAL_TRUE);
-    b.set(HAKeys::PAYLOAD_OFF, HAKeys::VAL_FALSE);
-}
-
-void initSwitch(HAEntityBuilder& b) {
-    b.independentAvailability(true);
-    b.command(true);
-    b.state(true);
-    b.set(HAKeys::PAYLOAD_ON, HAKeys::VAL_TRUE);
-    b.set(HAKeys::PAYLOAD_OFF, HAKeys::VAL_FALSE);
-}
-
-void initButton(HAEntityBuilder& b) {
-    b.independentAvailability(true);
-    b.command(true);
-    b.state(false);
-    b.set(HAKeys::PAYLOAD_PRESS, HAKeys::VAL_PRESS);
-}
-
-void initCommandState(HAEntityBuilder& b) {  // number, select
-    b.independentAvailability(true);
-    b.command(true);
-    b.state(true);
-}
-
-}  // namespace
-
 #if !defined(MQTT_CALLBACK_FUNCTIONAL) && !defined(HAAM_NO_COMMANDS)
-HomeAssistantArduinoMQTT* _myHaamInstance;
+HomeAssistantArduinoMQTT* HomeAssistantArduinoMQTT::_instance = nullptr;
 
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    if (_myHaamInstance) _myHaamInstance->_handleMessage(topic, payload, length);
+void HomeAssistantArduinoMQTT::_staticCallback(char* topic, byte* payload, haam_len_t length) {
+    if (_instance) _instance->_handleMessage(topic, payload, length);
 }
 #endif
 
 HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
-    mqttClient = nullptr;
-    _client = nullptr;
 #ifndef HAAM_NO_COMMANDS
     _callbackListener = nullptr;
-    _readValuesEnabled = false;
 #endif
-    maxEntityNum = maxN;
+    // zero-initialized: a free slot has an empty item
+    values = new ItemValue[maxN]();
+    maxEntityNum = values ? maxN : 0;
 
-    values = new ItemValue[maxEntityNum]();
-
-    for (uint8_t i = 0; i < maxEntityNum; i++) {
-        values[i].isFirstValue = 1;
-        values[i].valueChanged = 1;
-    }
-
-    _statusTopic[0] = '\0';
     _sanitizedDeviceName[0] = '\0';
     _topicBuf[0] = '\0';
-    _lastReconnectAttempt = 0;
 
 #ifdef HAAM_MULTI_DEVICE
     _subDeviceCount = 0;
@@ -354,40 +303,38 @@ HomeAssistantArduinoMQTT::HomeAssistantArduinoMQTT(uint8_t maxN) {
     _ddActive = false;
     _ddRegister = false;
 #endif
-
-#if !defined(MQTT_CALLBACK_FUNCTIONAL) && !defined(HAAM_NO_COMMANDS)
-    _myHaamInstance = this;
-#endif
 }
 
 HomeAssistantArduinoMQTT::~HomeAssistantArduinoMQTT() {
-    delete mqttClient;
+#if !defined(MQTT_CALLBACK_FUNCTIONAL) && !defined(HAAM_NO_COMMANDS)
+    if (_instance == this) _instance = nullptr;
+#endif
     delete[] values;
 }
 
-void HomeAssistantArduinoMQTT::sanitizeID(const char* input, char* output, size_t maxLen) {
+void HomeAssistantArduinoMQTT::_sanitize(const char* input, bool pgm, char* output, size_t maxLen) {
     if (!output || maxLen == 0) return;
-    if (!input) {
-        output[0] = '\0';
-        return;
-    }
-
     size_t w = 0;
-    bool lastWasUnderscore = false;
-
-    for (const char* p = input; *p && w + 1 < maxLen; p++) {
-        char c = *p;
-        if (c >= 'A' && c <= 'Z') c += 32;
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-            output[w++] = c;
-            lastWasUnderscore = false;
-        } else if ((c == ' ' || c == '-' || c == '_') && w > 0 && !lastWasUnderscore) {
-            output[w++] = '_';
-            lastWasUnderscore = true;
+    if (input) {
+        bool lastWasUnderscore = false;
+        char c;
+        for (const char* p = input; (c = pgm ? (char)pgm_read_byte(p) : *p) != '\0' && w + 1 < maxLen; p++) {
+            if (c >= 'A' && c <= 'Z') c += 32;
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+                output[w++] = c;
+                lastWasUnderscore = false;
+            } else if ((c == ' ' || c == '-' || c == '_') && w > 0 && !lastWasUnderscore) {
+                output[w++] = '_';
+                lastWasUnderscore = true;
+            }
         }
+        if (w > 0 && output[w - 1] == '_') w--;
     }
-    if (w > 0 && output[w - 1] == '_') w--;
     output[w] = '\0';
+}
+
+void HomeAssistantArduinoMQTT::sanitizeID(const char* input, char* output, size_t maxLen) {
+    _sanitize(input, false, output, maxLen);
 }
 
 // ---------------------------------------------------------------------------
@@ -454,15 +401,9 @@ uint8_t HomeAssistantArduinoMQTT::addDevice(const char* id, const char* name) {
 
 #ifndef HAAM_NO_COMMANDS
     // added while connected: subscribe now, connect() covers the next sessions
-    if (mqttClient && mqttClient->connected()) {
-        if (_readValuesEnabled) {
-            _valueTopic(dev, "+", false, HAKeys::TOPIC_STATE, false);
-            mqttClient->subscribe(_topicBuf);
-        }
-        if (commandEnabled) {
-            _valueTopic(dev, "+", false, HAKeys::TOPIC_COMMAND, false);
-            mqttClient->subscribe(_topicBuf);
-        }
+    if (_mqtt.connected()) {
+        if (_readValuesEnabled) _subscribe(dev, HAKeys::TOPIC_STATE);
+        if (commandEnabled) _subscribe(dev, HAKeys::TOPIC_COMMAND);
     }
 #endif
     return dev;
@@ -487,17 +428,12 @@ void HomeAssistantArduinoMQTT::setDeviceAvailability(uint8_t dev, bool isAvailab
 //  Inbound messages: haam/<device id>/<item>/<set|state>
 // ---------------------------------------------------------------------------
 #ifndef HAAM_NO_COMMANDS
-#ifdef MQTT_CALLBACK_FUNCTIONAL
-void HomeAssistantArduinoMQTT::_mqttCallback(char* topic, byte* payload, unsigned int length) {
-    _handleMessage(topic, payload, length);
-}
-#endif
-
-void HomeAssistantArduinoMQTT::_handleMessage(char* topic, byte* payload, unsigned int length) {
-    if (!commandEnabled) return;
+void HomeAssistantArduinoMQTT::_handleMessage(char* topic, byte* payload, haam_len_t length) {
+    // empty payload: retained message cleared (e.g. clearSetTopic()), not a command
+    if (length == 0) return;
 
     constexpr size_t prefixLen = sizeof(HAKeys::VALUE_TOPIC_PREFIX) - 1;
-    if (strncmp(topic, HAKeys::VALUE_TOPIC_PREFIX, prefixLen) != 0 || topic[prefixLen] != '/') return;
+    if (strncmp_P(topic, HAKeys::VALUE_TOPIC_PREFIX, prefixLen) != 0 || topic[prefixLen] != '/') return;
 
     const char* devPtr = topic + prefixLen + 1;
     uint8_t dev = HAAM_NO_DEVICE;
@@ -521,21 +457,29 @@ void HomeAssistantArduinoMQTT::_handleMessage(char* topic, byte* payload, unsign
     if (itemLen >= HAAM_ITEM_LEN) return;
 
     const char* action = lastSlash + 1;
-    bool isCommand = (strcmp(action, HAKeys::TOPIC_COMMAND) == 0);
-    bool isState = (!isCommand && strcmp(action, HAKeys::TOPIC_STATE) == 0);
-    if (!isCommand && !isState) return;
+    bool isCommand = (strcmp_P(action, HAKeys::TOPIC_COMMAND) == 0);
+    bool isState = (!isCommand && strcmp_P(action, HAKeys::TOPIC_STATE) == 0);
+    if (isCommand ? !commandEnabled : (!isState || !_readValuesEnabled)) return;
 
     char item[HAAM_ITEM_LEN];
     memcpy(item, remainder, itemLen);
     item[itemLen] = '\0';
 
     char cPayload[HAAM_PAYLOAD_LEN];
-    unsigned int copyLen = (length < sizeof(cPayload) - 1) ? length : (unsigned int)(sizeof(cPayload) - 1);
+    haam_len_t copyLen = (length < sizeof(cPayload) - 1) ? length : (haam_len_t)(sizeof(cPayload) - 1);
     memcpy(cPayload, payload, copyLen);
     cPayload[copyLen] = '\0';
 
-    // retained state echoed by the broker: keep the value, do not touch availability
-    if (isState) _storeValue(dev, item, cPayload, false);
+    if (isState) {
+        // retained state kept by the broker: restore it into a known entity,
+        // unless a newer local value is waiting to be sent. Unknown items never
+        // take a slot. Availability is not touched.
+        int16_t i = _lookup(dev, item, false);
+        if (i >= 0 && !values[i].valueChanged) {
+            _storeValueAt(i, cPayload, false);
+            values[i].stateSent = 1;
+        }
+    }
     if (_callbackListener != nullptr) {
 #ifdef HAAM_MULTI_DEVICE
         _callbackListener->onMQTTMessage(dev, item, cPayload, isState);
@@ -544,32 +488,28 @@ void HomeAssistantArduinoMQTT::_handleMessage(char* topic, byte* payload, unsign
 #endif
     }
 }
+
+void HomeAssistantArduinoMQTT::_subscribe(uint8_t dev, const char* actionP) {
+    _valueTopic(dev, "+", false, actionP, true);
+    _mqtt.subscribe(_topicBuf);
+}
 #endif  // HAAM_NO_COMMANDS
 
 void HomeAssistantArduinoMQTT::_valueTopic(uint8_t dev, const char* a, bool aPgm,
                                            const char* b, bool bPgm) {
     const size_t cap = sizeof(_topicBuf);
     size_t p = 0;
-    p = appRam(_topicBuf, cap, p, HAKeys::VALUE_TOPIC_PREFIX);
+    p = appPgm(_topicBuf, cap, p, HAKeys::VALUE_TOPIC_PREFIX);
     p = appChar(_topicBuf, cap, p, '/');
     p = appRam(_topicBuf, cap, p, _deviceId(dev));
     p = appChar(_topicBuf, cap, p, '/');
-    p = aPgm ? appPgm(_topicBuf, cap, p, a) : appRam(_topicBuf, cap, p, a);
+    p = appX(_topicBuf, cap, p, a, aPgm);
     if (b) {
         p = appChar(_topicBuf, cap, p, '/');
-        p = bPgm ? appPgm(_topicBuf, cap, p, b) : appRam(_topicBuf, cap, p, b);
+        p = appX(_topicBuf, cap, p, b, bPgm);
     }
     _topicBuf[p] = '\0';
 }
-
-#ifndef HAAM_NO_COMMANDS
-void HomeAssistantArduinoMQTT::_subscribeAll(const char* action) {
-    for (uint8_t d = 0; d < _deviceCount(); d++) {
-        _valueTopic(d, "+", false, action, false);
-        mqttClient->subscribe(_topicBuf);
-    }
-}
-#endif
 
 int16_t HomeAssistantArduinoMQTT::_lookup(uint8_t dev, const char* item, bool allocate, bool* isNew) {
     if (isNew) *isNew = false;
@@ -613,9 +553,10 @@ int16_t HomeAssistantArduinoMQTT::_allocate(uint8_t dev, const char* item) {
     int16_t i = _lookup(dev, item, true, &isNew);
     if (i >= 0 && isNew) {
         ItemValue& v = values[i];
+        v.hasIndAvail = 0;
         v.valueChanged = 0;
         v.lastAvailable = 0;
-        v.isFirstValue = 1;
+        v.stateSent = 0;
         v.isConfigured = 0;
         v.availabilitySent = 0;
     }
@@ -633,48 +574,51 @@ void HomeAssistantArduinoMQTT::setCallback(HAMQTTCallback* listener) {
 }
 #endif
 
-void HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port) {
-    begin(client, server, port, 1024, 15);
+bool HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port) {
+#if HAAM_MQTT_BUFFER_SIZE != MQTT_MAX_PACKET_SIZE
+    return begin(client, server, port, HAAM_MQTT_BUFFER_SIZE, 15);
+#else
+    return begin(client, server, port, 0, 15);  // keep the PubSubClient buffer, no realloc
+#endif
 }
 
-void HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive) {
-    _client = &client;
-
+bool HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive) {
     sanitizeID(mqttDeviceName, _sanitizedDeviceName, sizeof(_sanitizedDeviceName));
 
-    _valueTopic(HAAM_ROOT_DEVICE, HAKeys::AVAILABILITY, true, nullptr, false);
-    copyStr(_statusTopic, sizeof(_statusTopic), _topicBuf);
-
-    if (mqttClient == nullptr) {
-        mqttClient = new PubSubClient(client);
-    } else {
-        mqttClient->setClient(client);
-    }
-    mqttClient->setBufferSize(bufferSize);
-    mqttClient->setServer(server, port);
+    _mqtt.setClient(client);
+    bool bufferOk = true;
+    if (bufferSize && bufferSize != _mqtt.getBufferSize()) bufferOk = _mqtt.setBufferSize(bufferSize);
+    _mqtt.setServer(server, port);
 
 #ifndef HAAM_NO_COMMANDS
 #ifdef MQTT_CALLBACK_FUNCTIONAL
-    mqttClient->setCallback([this](char* topic, byte* payload, unsigned int length) {
-        this->_mqttCallback(topic, payload, length);
+    _mqtt.setCallback([this](char* topic, byte* payload, haam_len_t length) {
+        _handleMessage(topic, payload, length);
     });
 #else
-    mqttClient->setCallback([](char* topic, byte* payload, unsigned int length) {
-        mqttCallback(topic, payload, length);
-    });
+    _instance = this;
+    _mqtt.setCallback(_staticCallback);
 #endif
 #endif
 
-    mqttClient->setKeepAlive(keepAlive);
+    _mqtt.setKeepAlive(keepAlive);
+    _started = true;
+    return bufferOk;
 }
 
 void HomeAssistantArduinoMQTT::loop() {
-    if (!mqttClient) return;
-    if (mqttClient->connected()) {
-        mqttClient->loop();
+    if (!_started) return;
+    if (_mqtt.connected()) {
+        _mqtt.loop();
     } else {
         connect();
     }
+}
+
+bool HomeAssistantArduinoMQTT::_publishAvailability(bool isAvailable) {
+    const char* payloadP = isAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
+    _valueTopic(HAAM_ROOT_DEVICE, HAKeys::AVAILABILITY, true, nullptr, false);
+    return _mqtt.publish_P(_topicBuf, (const uint8_t*)payloadP, strlen_P(payloadP), true);
 }
 
 void HomeAssistantArduinoMQTT::connect() {
@@ -682,176 +626,156 @@ void HomeAssistantArduinoMQTT::connect() {
     if (_lastReconnectAttempt != 0 && (now - _lastReconnectAttempt) < 5000) return;
     _lastReconnectAttempt = now;
 
-    bool success;
+    // empty credentials: anonymous connection (an empty user name is not anonymous)
+    const char* user = isEmptyStr(mqttUser) ? nullptr : mqttUser;
+    const char* pass = (user && !isEmptyStr(mqttPassword)) ? mqttPassword : nullptr;
 
+    bool success;
     if (useSharedAvailability) {
-        char offlinePayload[16];
+        char offlinePayload[sizeof(HAKeys::OFFLINE_PAYLOAD)];
         strcpy_P(offlinePayload, HAKeys::OFFLINE_PAYLOAD);
-        success = mqttClient->connect(_sanitizedDeviceName, mqttUser, mqttPassword, _statusTopic, 1, true, offlinePayload);
+        _valueTopic(HAAM_ROOT_DEVICE, HAKeys::AVAILABILITY, true, nullptr, false);
+        success = _mqtt.connect(_sanitizedDeviceName, user, pass, _topicBuf, 1, true, offlinePayload);
     } else {
-        success = mqttClient->connect(_sanitizedDeviceName, mqttUser, mqttPassword);
+        success = _mqtt.connect(_sanitizedDeviceName, user, pass);
     }
 
     if (!success) return;
 
+    // new session: send everything again (values set while offline stay "changed")
     for (uint8_t i = 0; i < maxEntityNum; i++) {
-        if (values[i].item[0] != '\0') {
-            values[i].valueChanged = 1;
-            values[i].availabilitySent = 0;
-        }
+        values[i].stateSent = 0;
+        values[i].availabilitySent = 0;
     }
 #ifdef HAAM_MULTI_DEVICE
     for (uint8_t d = 0; d < _subDeviceCount; d++) _subDevices[d].availabilitySent = 0;
 #endif
 
-    if (useSharedAvailability) {
-        mqttClient->publish_P(_statusTopic, (const uint8_t*)HAKeys::ONLINE_PAYLOAD, strlen_P(HAKeys::ONLINE_PAYLOAD), true);
-    }
+    if (useSharedAvailability) _publishAvailability(true);
 
 #ifndef HAAM_NO_COMMANDS
-    if (_readValuesEnabled) _subscribeAll(HAKeys::TOPIC_STATE);
-    if (commandEnabled) _subscribeAll(HAKeys::TOPIC_COMMAND);
+    for (uint8_t d = 0; d < _deviceCount(); d++) {
+        if (_readValuesEnabled) _subscribe(d, HAKeys::TOPIC_STATE);
+        if (commandEnabled) _subscribe(d, HAKeys::TOPIC_COMMAND);
+    }
 #endif
 }
 
 bool HomeAssistantArduinoMQTT::connected() {
-    return mqttClient && mqttClient->connected();
+    return _mqtt.connected();
+}
+
+void HomeAssistantArduinoMQTT::disconnect(bool publishOffline) {
+    if (!_mqtt.connected()) return;
+    if (publishOffline && useSharedAvailability) _publishAvailability(false);
+    _mqtt.disconnect();
 }
 
 // ---------------------------------------------------------------------------
-//  Entity factories
+//  Entity factory
 // ---------------------------------------------------------------------------
-HAEntityBuilder HomeAssistantArduinoMQTT::_newEntity(uint8_t dev, const char* type, const char* id, const char* name) {
-    return HAEntityBuilder(this, type, id, name, dev);
-}
+HAEntityBuilder HomeAssistantArduinoMQTT::_make(uint8_t dev, uint8_t kind, const char* type, const char* id, const char* name) {
+    HAEntityBuilder b(this, type, id, name, dev);
+    if (kind == KIND_GENERIC) return b;
 
-HAEntityBuilder HomeAssistantArduinoMQTT::newEntity(const char* type, const char* id, const char* name) {
-    return _newEntity(HAAM_ROOT_DEVICE, type, id, name);
+    b._pgm |= HAEntityBuilder::P_TYPE;
+    b._indAvail = 1;
+    switch (kind) {
+        case KIND_SENSOR:
+            b._type = HAKeys::TYPE_SENSOR;
+            break;
+        case KIND_BINARY_SENSOR:
+            b._type = HAKeys::TYPE_BINARY_SENSOR;
+            b._propStr(HAKeys::PAYLOAD_ON, true, HAKeys::VAL_TRUE, true);
+            b._propStr(HAKeys::PAYLOAD_OFF, true, HAKeys::VAL_FALSE, true);
+            break;
+        case KIND_SWITCH:
+            b._type = HAKeys::TYPE_SWITCH;
+            b._commandTopic = 1;
+            b._propStr(HAKeys::PAYLOAD_ON, true, HAKeys::VAL_TRUE, true);
+            b._propStr(HAKeys::PAYLOAD_OFF, true, HAKeys::VAL_FALSE, true);
+            break;
+        case KIND_BUTTON:
+            b._type = HAKeys::TYPE_BUTTON;
+            b._commandTopic = 1;
+            b._stateTopic = 0;
+            b._propStr(HAKeys::PAYLOAD_PRESS, true, HAKeys::VAL_PRESS, true);
+            break;
+        case KIND_NUMBER:
+            b._type = HAKeys::TYPE_NUMBER;
+            b._commandTopic = 1;
+            break;
+        default:  // KIND_SELECT
+            b._type = HAKeys::TYPE_SELECT;
+            b._commandTopic = 1;
+            break;
+    }
+    return b;
 }
-HAEntityBuilder HomeAssistantArduinoMQTT::newSensorEntity(const char* id, const char* name) {
-    return makeEntity(this, HAAM_ROOT_DEVICE, HAKeys::TYPE_SENSOR, id, name, initSensor);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newBinarySensorEntity(const char* id, const char* name) {
-    return makeEntity(this, HAAM_ROOT_DEVICE, HAKeys::TYPE_BINARY_SENSOR, id, name, initBinarySensor);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newSwitchEntity(const char* id, const char* name) {
-    return makeEntity(this, HAAM_ROOT_DEVICE, HAKeys::TYPE_SWITCH, id, name, initSwitch);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newButtonEntity(const char* id, const char* name) {
-    return makeEntity(this, HAAM_ROOT_DEVICE, HAKeys::TYPE_BUTTON, id, name, initButton);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newNumberEntity(const char* id, const char* name) {
-    return makeEntity(this, HAAM_ROOT_DEVICE, HAKeys::TYPE_NUMBER, id, name, initCommandState);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(const char* id, const char* name) {
-    return makeEntity(this, HAAM_ROOT_DEVICE, HAKeys::TYPE_SELECT, id, name, initCommandState);
-}
-
-#ifdef HAAM_MULTI_DEVICE
-HAEntityBuilder HomeAssistantArduinoMQTT::newEntity(uint8_t dev, const char* type, const char* id, const char* name) {
-    return _newEntity(dev, type, id, name);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newSensorEntity(uint8_t dev, const char* id, const char* name) {
-    return makeEntity(this, dev, HAKeys::TYPE_SENSOR, id, name, initSensor);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newBinarySensorEntity(uint8_t dev, const char* id, const char* name) {
-    return makeEntity(this, dev, HAKeys::TYPE_BINARY_SENSOR, id, name, initBinarySensor);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newSwitchEntity(uint8_t dev, const char* id, const char* name) {
-    return makeEntity(this, dev, HAKeys::TYPE_SWITCH, id, name, initSwitch);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newButtonEntity(uint8_t dev, const char* id, const char* name) {
-    return makeEntity(this, dev, HAKeys::TYPE_BUTTON, id, name, initButton);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newNumberEntity(uint8_t dev, const char* id, const char* name) {
-    return makeEntity(this, dev, HAKeys::TYPE_NUMBER, id, name, initCommandState);
-}
-HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(uint8_t dev, const char* id, const char* name) {
-    return makeEntity(this, dev, HAKeys::TYPE_SELECT, id, name, initCommandState);
-}
-#endif
 
 // ---------------------------------------------------------------------------
 //  Discovery payloads
 // ---------------------------------------------------------------------------
 void HomeAssistantArduinoMQTT::_writeDevice(HAJsonStream& js, uint8_t dev) {
-    js.key(HAKeys::DEVICE);
-    js.openObj();
-    js.key(HAKeys::IDENTIFIERS);
-    js.openArr();
-    js.str(_deviceId(dev));
-    js.closeArr();
-
+    const char* id = _deviceId(dev);
+    const char* name = haDeviceName;
+    const char* vals[4] = {manufacturer, model, version, configurationUrl};
+    const char* via = nullptr;
 #ifdef HAAM_MULTI_DEVICE
     if (dev != HAAM_ROOT_DEVICE) {
         const HAAMDevice& d = _subDevices[dev - 1];
-        if (!isEmptyStr(d.manufacturer)) {
-            js.key(HAKeys::MANUFACTURER);
-            js.str(d.manufacturer);
-        }
-        if (!isEmptyStr(d.model)) {
-            js.key(HAKeys::MODEL);
-            js.str(d.model);
-        }
-        js.key(HAKeys::NAME);
-        js.str(isEmptyStr(d.name) ? d.id : d.name);
-        if (!isEmptyStr(d.version)) {
-            js.key(HAKeys::SW_VERSION);
-            js.str(d.version);
-        }
-        if (!isEmptyStr(d.configurationUrl)) {
-            js.key(HAKeys::CONFIGURATION_URL);
-            js.str(d.configurationUrl);
-        }
-        js.key(HAKeys::VIA_DEVICE);
-        js.str(_sanitizedDeviceName);
-        js.closeObj();
-        return;
+        name = d.name;
+        vals[0] = d.manufacturer;
+        vals[1] = d.model;
+        vals[2] = d.version;
+        vals[3] = d.configurationUrl;
+        via = _sanitizedDeviceName;
     }
 #endif
+    static const char* const keys[4] PROGMEM = {HAKeys::MANUFACTURER, HAKeys::MODEL, HAKeys::SW_VERSION, HAKeys::CONFIGURATION_URL};
 
-    js.key(HAKeys::MANUFACTURER);
-    js.str(manufacturer);
-    js.key(HAKeys::MODEL);
-    js.str(model);
+    js.key(HAKeys::DEVICE);
+    js.openObj();
+    js.key(HAKeys::IDENTIFIERS);
+    js.str(id);
     js.key(HAKeys::NAME);
-    js.str(haDeviceName);
-    js.key(HAKeys::SW_VERSION);
-    js.str(version);
-    if (!isEmptyStr(configurationUrl)) {
-        js.key(HAKeys::CONFIGURATION_URL);
-        js.str(configurationUrl);
+    js.str(isEmptyStr(name) ? id : name);
+    for (uint8_t i = 0; i < 4; i++) {
+        if (isEmptyStr(vals[i])) continue;
+        js.key((const char*)pgm_read_ptr(&keys[i]));
+        js.str(vals[i]);
+    }
+    if (via) {
+        js.key(HAKeys::VIA_DEVICE);
+        js.str(via);
     }
     js.closeObj();
 }
 
 // connection (LWT) + child device + entity availability, all required
 void HomeAssistantArduinoMQTT::_writeAvailability(HAJsonStream& js, uint8_t dev, const char* entityId) {
+    bool childAvty = false;
+#ifdef HAAM_MULTI_DEVICE
+    childAvty = dev != HAAM_ROOT_DEVICE && _subDevices[dev - 1].useAvailability;
+#endif
+    uint8_t avtyCount = (useSharedAvailability ? 1 : 0) + (childAvty ? 1 : 0) + (entityId ? 1 : 0);
+    if (!avtyCount) return;
+
     js.key(HAKeys::AVAILABILITY);
     js.openArr();
-    uint8_t avtyCount = 0;
-    if (useSharedAvailability) {
+    for (uint8_t k = 0; k < 3; k++) {
+        if (k == 0 && !useSharedAvailability) continue;
+        if (k == 1 && !childAvty) continue;
+        if (k == 2 && !entityId) continue;
         js.openObj();
         js.key(HAKeys::TOPIC);
-        js.str(_statusTopic);
+        if (k == 0)
+            writeTopicValue(js, _sanitizedDeviceName, HAKeys::AVAILABILITY, true, nullptr, false);
+        else if (k == 1)
+            writeTopicValue(js, _deviceId(dev), HAKeys::AVAILABILITY, true, nullptr, false);
+        else
+            writeTopicValue(js, _deviceId(dev), entityId, false, HAKeys::AVAILABILITY, true);
         js.closeObj();
-        avtyCount++;
-    }
-#ifdef HAAM_MULTI_DEVICE
-    if (dev != HAAM_ROOT_DEVICE && _subDevices[dev - 1].useAvailability) {
-        js.openObj();
-        js.key(HAKeys::TOPIC);
-        writeTopicValue(js, _deviceId(dev), HAKeys::AVAILABILITY, true, nullptr, false);
-        js.closeObj();
-        avtyCount++;
-    }
-#endif
-    if (entityId) {
-        js.openObj();
-        js.key(HAKeys::TOPIC);
-        writeTopicValue(js, _deviceId(dev), entityId, false, HAKeys::AVAILABILITY, true);
-        js.closeObj();
-        avtyCount++;
     }
     js.closeArr();
 
@@ -869,41 +793,33 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
 
     if (component) {
         js.key(HAKeys::PLATFORM);
-        js.str(b->_type);
+        js.strX(b->_type, b->_isPgm(HAEntityBuilder::P_TYPE));
     }
 
     _writeAvailability(js, dev, b->_indAvail ? entityId : nullptr);
 
     if (!component) _writeDevice(js, dev);
 
-    if (!isEmptyStr(b->_name)) {
+    if (!isEmptyX(b->_name, b->_isPgm(HAEntityBuilder::P_NAME))) {
         js.key(HAKeys::NAME);
-        js.str(b->_name);
+        js.strX(b->_name, b->_isPgm(HAEntityBuilder::P_NAME));
     }
     if (b->_suggestedPrecisionEnable) {
         js.key(HAKeys::SUGGESTED_DISPLAY_PRECISION);
         js.num(b->_suggestedPrecision);
     }
-    if (b->_category) {
-        js.key(HAKeys::ENTITY_CATEGORY);
-        js.str(b->_category);
+
+    // optional string fields, in output order
+    const char* const fields[5] = {b->_category, b->_deviceClass, b->_stateClass, b->_icon, b->_unit};
+    static const char* const keys[5] PROGMEM = {HAKeys::ENTITY_CATEGORY, HAKeys::DEVICE_CLASS, HAKeys::STATE_CLASS,
+                                                HAKeys::ICON, HAKeys::UNIT_OF_MEASUREMENT};
+    uint8_t bit = HAEntityBuilder::P_CATEGORY;
+    for (uint8_t i = 0; i < 5; i++, bit <<= 1) {
+        if (!fields[i]) continue;
+        js.key((const char*)pgm_read_ptr(&keys[i]));
+        js.strX(fields[i], b->_isPgm(bit));
     }
-    if (b->_deviceClass) {
-        js.key(HAKeys::DEVICE_CLASS);
-        js.str(b->_deviceClass);
-    }
-    if (b->_stateClass) {
-        js.key(HAKeys::STATE_CLASS);
-        js.str(b->_stateClass);
-    }
-    if (b->_icon) {
-        js.key(HAKeys::ICON);
-        js.str(b->_icon);
-    }
-    if (b->_unit) {
-        js.key(HAKeys::UNIT_OF_MEASUREMENT);
-        js.str(b->_unit);
-    }
+
     if (b->_options && b->_optionCount) {
         js.key(HAKeys::OPTIONS);
         js.openArr();
@@ -913,10 +829,10 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
 
     for (uint8_t i = 0; i < b->_customPropCount; i++) {
         const HACustomProp& cp = b->_customProps[i];
-        js.key(cp.key);
+        js.keyX(cp.key, cp.keyPgm);
         switch (cp.type) {
             case 0:
-                js.strP(cp.valStr);
+                js.strX(cp.valStr, cp.valPgm);
                 break;
             case 1:
                 js.num(cp.valInt);
@@ -927,27 +843,25 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
         }
     }
 
+    // child devices are always prefixed: their entity ids are only unique per device
     js.key(HAKeys::UNIQUE_ID);
     js.strBegin();
-    if (prefixUniqueIds) {
+    if (prefixUniqueIds || dev != HAAM_ROOT_DEVICE) {
         js.strAdd(devId);
         js.strAddChar('_');
     }
     js.strAdd(entityId);
     js.strEnd();
 
-    js.key(HAKeys::ENABLED_DEFAULT);
-    js.boolean(true);
-
     if (b->_commandTopic) {
         const char* cmdName = isEmptyStr(b->_commandTopicName) ? entityId : b->_commandTopicName;
         js.key(HAKeys::COMMAND_TOPIC);
-        writeTopicValue(js, devId, cmdName, false, HAKeys::TOPIC_COMMAND, false);
+        writeTopicValue(js, devId, cmdName, false, HAKeys::TOPIC_COMMAND, true);
     }
 
     if (b->_stateTopic) {
         js.key(HAKeys::STATE_TOPIC);
-        writeTopicValue(js, devId, entityId, false, HAKeys::TOPIC_STATE, false);
+        writeTopicValue(js, devId, entityId, false, HAKeys::TOPIC_STATE, true);
     }
 
     js.closeObj();
@@ -955,11 +869,9 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
 
 void HomeAssistantArduinoMQTT::_entityId(HAEntityBuilder* builder, char* out, size_t len) {
     if (!isEmptyStr(builder->_id)) {
-        sanitizeID(builder->_id, out, len);
-    } else if (!isEmptyStr(builder->_name)) {
-        sanitizeID(builder->_name, out, len);
+        _sanitize(builder->_id, false, out, len);
     } else {
-        out[0] = '\0';
+        _sanitize(builder->_name, builder->_isPgm(HAEntityBuilder::P_NAME), out, len);
     }
 }
 
@@ -984,7 +896,7 @@ int16_t HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
 
     if (!_isValidDevice(dev)) return -1;
 
-    if (enableConfigPublishing && mqttClient && mqttClient->connected()) {
+    if (enableConfigPublishing && entityId[0] != '\0' && _mqtt.connected()) {
         size_t payloadLen;
         {
             HAJsonStream measure(nullptr);
@@ -996,20 +908,20 @@ int16_t HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
         size_t p = 0;
         p = appPgm(_topicBuf, cap, p, HAKeys::PREFIX);
         p = appChar(_topicBuf, cap, p, '/');
-        p = appRam(_topicBuf, cap, p, builder->_type);
+        p = appX(_topicBuf, cap, p, builder->_type, builder->_isPgm(HAEntityBuilder::P_TYPE));
         p = appChar(_topicBuf, cap, p, '/');
         p = appRam(_topicBuf, cap, p, _deviceId(dev));
         p = appChar(_topicBuf, cap, p, '/');
         p = appRam(_topicBuf, cap, p, entityId);
         p = appChar(_topicBuf, cap, p, '/');
-        p = appRam(_topicBuf, cap, p, HAKeys::TOPIC_CONFIG);
+        p = appPgm(_topicBuf, cap, p, HAKeys::TOPIC_CONFIG);
         _topicBuf[p] = '\0';
 
-        if (mqttClient->beginPublish(_topicBuf, payloadLen, true)) {
-            HAJsonStream out(mqttClient);
+        if (_mqtt.beginPublish(_topicBuf, payloadLen, true)) {
+            HAJsonStream out(&_mqtt);
             _writeConfig(out, builder, dev, entityId, false);
             out.flush();
-            mqttClient->endPublish();
+            _mqtt.endPublish();
         }
     }
 
@@ -1020,16 +932,26 @@ int16_t HomeAssistantArduinoMQTT::_registerEntity(HAEntityBuilder* builder, uint
     int16_t slot = _allocate(dev, entityId);
     if (slot < 0) return -1;
 
-    bool wasConfigured = values[slot].isConfigured;
-    values[slot].isConfigured = 1;
-    values[slot].hasIndAvail = builder->_indAvail ? 1 : 0;
+    ItemValue& v = values[slot];
+    bool wasConfigured = v.isConfigured;
+    v.isConfigured = 1;
+    v.hasIndAvail = builder->_indAvail ? 1 : 0;
 
     // a value stored before publish() (e.g. deep sleep) or since a previous publish() wins over startup()
-    bool hasStored = builder->_stateTopic && values[slot].value[0] != '\0';
-    bool hasStartup = builder->_stateTopic && !isEmptyStr(builder->_startupValue);
+    bool startupPgm = builder->_isPgm(HAEntityBuilder::P_STARTUP);
+    bool hasStored = builder->_stateTopic && v.value[0] != '\0';
+    bool hasStartup = builder->_stateTopic && !isEmptyX(builder->_startupValue, startupPgm);
 
     if (hasStartup && !hasStored) {
-        _setValueAt(slot, builder->_startupValue, true);
+        const char* sv = builder->_startupValue;
+        char tmp[HAAM_VALUE_LEN];
+        if (startupPgm) {
+            tmp[appPgm(tmp, sizeof(tmp), 0, sv)] = '\0';
+            sv = tmp;
+        }
+        // a default, not a local change: a state restored by readValues() replaces it
+        _setValueAt(slot, sv, false);
+        v.stateSent = 0;
     } else if (!wasConfigured && builder->_indAvail) {
         // first publish(): initial availability; later ones keep what the application set.
         // Entities without a state (e.g. buttons) have no value to wait for: start available.
@@ -1057,11 +979,6 @@ void HomeAssistantArduinoMQTT::_writeDeviceHeader(HAJsonStream& js, uint8_t dev)
     js.openObj();
 }
 
-void HomeAssistantArduinoMQTT::_writeDeviceFooter(HAJsonStream& js) {
-    js.closeObj();  // cmps
-    js.closeObj();  // root
-}
-
 bool HomeAssistantArduinoMQTT::_publishDevice(uint8_t dev, HAAMDeviceDeclarer declare) {
     if (!declare || _ddActive || !_isValidDevice(dev)) return false;
 
@@ -1070,7 +987,7 @@ bool HomeAssistantArduinoMQTT::_publishDevice(uint8_t dev, HAAMDeviceDeclarer de
     bool registered = false;
     bool published = false;
 
-    if (enableConfigPublishing && mqttClient && mqttClient->connected()) {
+    if (enableConfigPublishing && _mqtt.connected()) {
         // pass 1: measure the payload, nothing is sent nor registered
         size_t payloadLen;
         {
@@ -1079,33 +996,33 @@ bool HomeAssistantArduinoMQTT::_publishDevice(uint8_t dev, HAAMDeviceDeclarer de
             _ddRegister = false;
             _writeDeviceHeader(measure, dev);
             declare(*this, dev);
-            _writeDeviceFooter(measure);
+            measure.closeObj();  // cmps
+            measure.closeObj();  // root
             payloadLen = measure.length();
-            _ddStream = nullptr;
         }
 
         const size_t cap = sizeof(_topicBuf);
         size_t p = 0;
         p = appPgm(_topicBuf, cap, p, HAKeys::PREFIX);
         p = appChar(_topicBuf, cap, p, '/');
-        p = appRam(_topicBuf, cap, p, HAKeys::TOPIC_DEVICE);
+        p = appPgm(_topicBuf, cap, p, HAKeys::TOPIC_DEVICE);
         p = appChar(_topicBuf, cap, p, '/');
         p = appRam(_topicBuf, cap, p, _deviceId(dev));
         p = appChar(_topicBuf, cap, p, '/');
-        p = appRam(_topicBuf, cap, p, HAKeys::TOPIC_CONFIG);
+        p = appPgm(_topicBuf, cap, p, HAKeys::TOPIC_CONFIG);
         _topicBuf[p] = '\0';
 
         // pass 2: stream the payload and register the entities
-        if (mqttClient->beginPublish(_topicBuf, payloadLen, true)) {
-            HAJsonStream out(mqttClient);
+        if (_mqtt.beginPublish(_topicBuf, payloadLen, true)) {
+            HAJsonStream out(&_mqtt);
             _ddStream = &out;
             _ddRegister = true;
             _writeDeviceHeader(out, dev);
             declare(*this, dev);
-            _writeDeviceFooter(out);
+            out.closeObj();  // cmps
+            out.closeObj();  // root
             out.flush();
-            _ddStream = nullptr;
-            published = mqttClient->endPublish() != 0;
+            published = _mqtt.endPublish() != 0 && out.ok() && out.length() == payloadLen;
             registered = true;
         }
     }
@@ -1138,22 +1055,18 @@ bool HomeAssistantArduinoMQTT::publishDevice(uint8_t dev, HAAMDeviceDeclarer dec
 //  Values & availability
 // ---------------------------------------------------------------------------
 void HomeAssistantArduinoMQTT::_clearSetTopic(uint8_t dev, const char* item) {
-    if (!mqttClient || !_isValidDevice(dev)) return;
+    if (!_isValidDevice(dev)) return;
 
     char sanitizedItem[HAAM_ITEM_LEN];
     sanitizeID(item, sanitizedItem, sizeof(sanitizedItem));
-    _clearSetTopicAt(dev, sanitizedItem);
+    if (sanitizedItem[0] != '\0') _clearSetTopicAt(dev, sanitizedItem);
 }
 
 void HomeAssistantArduinoMQTT::_clearSetTopicAt(uint8_t dev, const char* sanitizedItem) {
-    _valueTopic(dev, sanitizedItem, false, HAKeys::TOPIC_COMMAND, false);
-    mqttClient->publish(_topicBuf, "", false);
-}
-
-int16_t HomeAssistantArduinoMQTT::_storeValue(uint8_t dev, const char* item, const char* value, bool markAsChanged) {
-    int16_t i = _allocate(dev, item);
-    if (i >= 0) _storeValueAt(i, value, markAsChanged);
-    return i;
+    // an empty retained message removes the retained command from the broker
+    // (inbound empty payloads are ignored, so this is not seen as a command)
+    _valueTopic(dev, sanitizedItem, false, HAKeys::TOPIC_COMMAND, true);
+    _mqtt.publish(_topicBuf, "", true);
 }
 
 void HomeAssistantArduinoMQTT::_storeValueAt(int16_t i, const char* value, bool markAsChanged) {
@@ -1196,19 +1109,20 @@ void HomeAssistantArduinoMQTT::_setEntityAvailability(uint8_t dev, const char* e
 #ifndef HAAM_NO_COMMANDS
 void HomeAssistantArduinoMQTT::readValues() {
     _readValuesEnabled = true;
-    if (mqttClient && mqttClient->connected()) _subscribeAll(HAKeys::TOPIC_STATE);
+    if (!_mqtt.connected()) return;
+    for (uint8_t d = 0; d < _deviceCount(); d++) _subscribe(d, HAKeys::TOPIC_STATE);
 }
 #endif
 
-bool HomeAssistantArduinoMQTT::_sendSingleValue(int i, bool force) {
+bool HomeAssistantArduinoMQTT::_sendSingleValue(int16_t i, bool force) {
     ItemValue& v = values[i];
     uint8_t dev = _itemDevice((uint8_t)i);
 
     // state: only when there is a value to send
-    if (v.value[0] != '\0' && (force || v.valueChanged || v.isFirstValue)) {
-        _valueTopic(dev, v.item, false, HAKeys::TOPIC_STATE, false);
-        if (!mqttClient->publish(_topicBuf, v.value, true)) return false;
-        v.isFirstValue = 0;
+    if (v.value[0] != '\0' && (force || v.valueChanged || !v.stateSent)) {
+        _valueTopic(dev, v.item, false, HAKeys::TOPIC_STATE, true);
+        if (!_mqtt.publish(_topicBuf, v.value, true)) return false;
+        v.stateSent = 1;
         v.valueChanged = 0;
     }
 
@@ -1216,7 +1130,7 @@ bool HomeAssistantArduinoMQTT::_sendSingleValue(int i, bool force) {
     if (v.hasIndAvail && (force || !v.availabilitySent)) {
         const char* payloadP = v.lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
         _valueTopic(dev, v.item, false, HAKeys::AVAILABILITY, true);
-        if (!mqttClient->publish_P(_topicBuf, (const uint8_t*)payloadP, strlen_P(payloadP), true)) {
+        if (!_mqtt.publish_P(_topicBuf, (const uint8_t*)payloadP, strlen_P(payloadP), true)) {
             return false;
         }
         v.availabilitySent = 1;
@@ -1226,7 +1140,7 @@ bool HomeAssistantArduinoMQTT::_sendSingleValue(int i, bool force) {
 }
 
 bool HomeAssistantArduinoMQTT::sendValues(bool force) {
-    if (!mqttClient || !mqttClient->connected()) return false;
+    if (!_mqtt.connected()) return false;
 
     bool sent = true;
 
@@ -1236,7 +1150,7 @@ bool HomeAssistantArduinoMQTT::sendValues(bool force) {
         if (!sd.useAvailability || (!force && sd.availabilitySent)) continue;
         const char* payloadP = sd.lastAvailable ? HAKeys::ONLINE_PAYLOAD : HAKeys::OFFLINE_PAYLOAD;
         _valueTopic((uint8_t)(d + 1), HAKeys::AVAILABILITY, true, nullptr, false);
-        if (mqttClient->publish_P(_topicBuf, (const uint8_t*)payloadP, strlen_P(payloadP), true)) {
+        if (_mqtt.publish_P(_topicBuf, (const uint8_t*)payloadP, strlen_P(payloadP), true)) {
             sd.availabilitySent = 1;
         } else {
             sent = false;
@@ -1251,25 +1165,30 @@ bool HomeAssistantArduinoMQTT::sendValues(bool force) {
 }
 
 bool HomeAssistantArduinoMQTT::_sendValue(uint8_t dev, const char* item, bool force) {
-    if (!mqttClient || !mqttClient->connected()) return false;
+    if (!_mqtt.connected()) return false;
 
     int16_t i = _lookup(dev, item, false);
     return (i >= 0) ? _sendSingleValue(i, force) : false;
 }
 
 void HomeAssistantArduinoMQTT::_sendCommand(uint8_t dev, const char* commandTopic, const char* payload) {
-    if (!mqttClient || !_isValidDevice(dev)) return;
+    if (!_isValidDevice(dev)) return;
     _valueTopic(dev, commandTopic, false, nullptr, false);
-    mqttClient->publish(_topicBuf, payload, false);
+    _mqtt.publish(_topicBuf, payload, false);
 }
 
 void HomeAssistantArduinoMQTT::_sendEvent(uint8_t dev, const char* eventName, const char* eventType) {
     char payload[HAAM_PAYLOAD_LEN];
     const size_t cap = sizeof(payload);
-    size_t p = 0;
-    p = appPgm(payload, cap, p, PSTR("{\"event_type\":\""));
-    p = appRam(payload, cap, p, eventType);
+    size_t p = appPgm(payload, cap, 0, PSTR("{\"event_type\":\""));
+    for (const char* s = eventType; s && *s; s++) {
+        char c = *s;
+        if ((uint8_t)c < 0x20) continue;
+        if (c == '"' || c == '\\') p = appChar(payload, cap, p, '\\');
+        p = appChar(payload, cap, p, c);
+    }
     p = appPgm(payload, cap, p, PSTR("\"}"));
+    if (p + 1 >= cap) return;  // possibly truncated: it would not be valid JSON
     payload[p] = '\0';
     _sendCommand(dev, eventName, payload);
 }
@@ -1318,13 +1237,13 @@ const char* HomeAssistantArduinoMQTT::getValue(HAAMEntity entity) {
     return (i >= 0) ? values[i].value : "";
 }
 bool HomeAssistantArduinoMQTT::sendValue(HAAMEntity entity, bool force) {
-    if (!mqttClient || !mqttClient->connected()) return false;
+    if (!_mqtt.connected()) return false;
     int16_t i = _slot(entity);
     return (i >= 0) ? _sendSingleValue(i, force) : false;
 }
 void HomeAssistantArduinoMQTT::clearSetTopic(HAAMEntity entity) {
     int16_t i = _slot(entity);
-    if (i >= 0 && mqttClient) _clearSetTopicAt(_itemDevice((uint8_t)i), values[i].item);
+    if (i >= 0) _clearSetTopicAt(_itemDevice((uint8_t)i), values[i].item);
 }
 void HomeAssistantArduinoMQTT::setEntityAvailability(HAAMEntity entity, bool isAvailable) {
     int16_t i = _slot(entity);
@@ -1363,14 +1282,15 @@ void HomeAssistantArduinoMQTT::sendEvent(uint8_t dev, const char* eventName, con
 //  HAEntityBuilder
 // ===========================================================================
 HAEntityBuilder::HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name, uint8_t device)
-    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _options(nullptr), _optionCount(0), _customPropCount(0), _device(device), _suggestedPrecision(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
+    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _options(nullptr), _optionCount(0), _customPropCount(0), _device(device), _suggestedPrecision(0), _pgm(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
 
-void HAEntityBuilder::category(const char* val) { _category = val; }
-void HAEntityBuilder::deviceClass(const char* val) { _deviceClass = val; }
-void HAEntityBuilder::stateClass(const char* val) { _stateClass = val; }
-void HAEntityBuilder::icon(const char* val) { _icon = val; }
-void HAEntityBuilder::unit(const char* val) { _unit = val; }
-void HAEntityBuilder::startup(const char* val) { _startupValue = val; }
+void HAEntityBuilder::_str(const char*& field, const char* val, uint8_t bit, bool pgm) {
+    field = val;
+    if (pgm && val)
+        _pgm |= bit;
+    else
+        _pgm &= (uint8_t)~bit;
+}
 
 void HAEntityBuilder::command(bool enable, const char* customName) {
     _commandTopic = enable ? 1 : 0;
@@ -1390,28 +1310,31 @@ void HAEntityBuilder::options(const char* const* opts, uint8_t count) {
     _optionCount = opts ? count : 0;
 }
 
-void HAEntityBuilder::set(const char* key, const char* value) {
-    if (_customPropCount >= HAAM_MAX_CUSTOM_PROPS) return;
-    HACustomProp& cp = _customProps[_customPropCount++];
-    cp.key = key;
-    cp.valStr = value;
-    cp.type = 0;
+HACustomProp* HAEntityBuilder::_prop(const char* key, bool keyPgm, uint8_t type) {
+    if (!key || _customPropCount >= HAAM_MAX_CUSTOM_PROPS) return nullptr;
+    HACustomProp* cp = &_customProps[_customPropCount++];
+    cp->key = key;
+    cp->keyPgm = keyPgm ? 1 : 0;
+    cp->valPgm = 0;
+    cp->type = type;
+    return cp;
 }
 
-void HAEntityBuilder::set(const char* key, int value) {
-    if (_customPropCount >= HAAM_MAX_CUSTOM_PROPS) return;
-    HACustomProp& cp = _customProps[_customPropCount++];
-    cp.key = key;
-    cp.valInt = value;
-    cp.type = 1;
+void HAEntityBuilder::_propStr(const char* key, bool keyPgm, const char* val, bool valPgm) {
+    HACustomProp* cp = _prop(key, keyPgm, 0);
+    if (!cp) return;
+    cp->valStr = val;
+    cp->valPgm = valPgm ? 1 : 0;
 }
 
-void HAEntityBuilder::set(const char* key, bool value) {
-    if (_customPropCount >= HAAM_MAX_CUSTOM_PROPS) return;
-    HACustomProp& cp = _customProps[_customPropCount++];
-    cp.key = key;
-    cp.valBool = value;
-    cp.type = 2;
+void HAEntityBuilder::_propInt(const char* key, bool keyPgm, long val) {
+    HACustomProp* cp = _prop(key, keyPgm, 1);
+    if (cp) cp->valInt = val;
+}
+
+void HAEntityBuilder::_propBool(const char* key, bool keyPgm, bool val) {
+    HACustomProp* cp = _prop(key, keyPgm, 2);
+    if (cp) cp->valBool = val;
 }
 
 HAAMEntity HAEntityBuilder::publish() {

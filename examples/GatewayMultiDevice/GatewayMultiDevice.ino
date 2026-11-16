@@ -176,14 +176,16 @@ void setup() {
     haMqtt.mqttPassword   = MQTT_PASS;
 
     // child devices
+    // getDevice() returns nullptr when addDevice() failed (HAAM_NO_DEVICE)
     boiler = haMqtt.addDevice("boiler_01", "Boiler");
-    HAAMDevice* b = haMqtt.getDevice(boiler);
-    b->manufacturer    = "ACME";
-    b->model           = "Boiler 3000";
-    b->useAvailability = true;   // goes offline when the bus does not answer
+    if (HAAMDevice* b = haMqtt.getDevice(boiler)) {
+        b->manufacturer    = "ACME";
+        b->model           = "Boiler 3000";
+        b->useAvailability = true;   // goes offline when the bus does not answer
+    }
 
     pump = haMqtt.addDevice("garden_pump", "Garden pump");
-    haMqtt.getDevice(pump)->model = "Pump X";
+    if (HAAMDevice* p = haMqtt.getDevice(pump)) p->model = "Pump X";
 
     haMqtt.setCallback(&callbackHandler);
     haMqtt.begin(netClient, MQTT_BROKER, MQTT_PORT);

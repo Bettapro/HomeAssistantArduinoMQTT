@@ -23,6 +23,7 @@ begin	KEYWORD2
 loop	KEYWORD2
 connected	KEYWORD2
 connect	KEYWORD2
+disconnect	KEYWORD2
 readValues	KEYWORD2
 setCallback	KEYWORD2
 setValue	KEYWORD2
@@ -66,6 +67,8 @@ independentAvailability	KEYWORD2
 command	KEYWORD2
 state	KEYWORD2
 set	KEYWORD2
+name	KEYWORD2
+options	KEYWORD2
 publish	KEYWORD2
 
 # Callback Methods

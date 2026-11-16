@@ -33,8 +33,9 @@ const uint16_t MQTT_PORT  = 1883;
 const char* MQTT_USER     = "mqtt_user";
 const char* MQTT_PASS     = "mqtt_password";
 
-// Deep Sleep duration: 15 minutes (in microseconds)
-const uint64_t SLEEP_TIME_US = 15ULL * 60ULL * 1000000ULL;
+// Deep Sleep duration: 15 minutes
+const uint32_t SLEEP_TIME_S = 15UL * 60UL;
+const uint64_t SLEEP_TIME_US = (uint64_t)SLEEP_TIME_S * 1000000ULL;
 
 // Hardware ADC Pin for battery reading
 #if defined(ESP32)
@@ -129,6 +130,11 @@ void setup() {
     haMqtt.mqttUser       = MQTT_USER;
     haMqtt.mqttPassword   = MQTT_PASS;
     
+    // No shared availability (LWT): the connection drops at every sleep and the
+    // broker would mark every entity offline until the next wake up. Stale
+    // values are handled by expire_after instead (see the entities below).
+    haMqtt.useSharedAvailability = false;
+
     // Command subscription is disabled for deep sleep device to save network overhead.
     // Building with -DHAAM_NO_COMMANDS removes the command code entirely (smaller firmware).
 #ifndef HAAM_NO_COMMANDS
@@ -154,6 +160,7 @@ void setup() {
         tempSensor.stateClass("measurement");
         tempSensor.unit("°C");
         tempSensor.suggestedDisplayPrecision(1);
+        tempSensor.set(F("exp_aft"), (long)(SLEEP_TIME_S * 2 + 60)); // unavailable after 2 missed wake ups
         tempSensor.publish();
 
         // Register Humidity Sensor
@@ -162,6 +169,7 @@ void setup() {
         humSensor.stateClass("measurement");
         humSensor.unit("%");
         humSensor.suggestedDisplayPrecision(1);
+        humSensor.set(F("exp_aft"), (long)(SLEEP_TIME_S * 2 + 60)); // unavailable after 2 missed wake ups
         humSensor.publish();
 
         // Register Battery Voltage Sensor
@@ -171,6 +179,7 @@ void setup() {
         battSensor.category("diagnostic");
         battSensor.unit("V");
         battSensor.suggestedDisplayPrecision(2);
+        battSensor.set(F("exp_aft"), (long)(SLEEP_TIME_S * 2 + 60)); // unavailable after 2 missed wake ups
         battSensor.publish();
 
         // Format and set entity values
@@ -189,11 +198,9 @@ void setup() {
         Serial.println(F("Publishing state values to MQTT..."));
         haMqtt.sendValues(true);
 
-        // Process loop briefly to ensure MQTT network packets are fully flushed
-        for (int i = 0; i < 10; i++) {
-            haMqtt.loop();
-            delay(20);
-        }
+        // Close the MQTT session cleanly (flushes the pending packets). false:
+        // do not report the device offline, it is only sleeping.
+        haMqtt.disconnect(false);
 
         Serial.println(F("Data successfully published to Home Assistant!"));
     } else {

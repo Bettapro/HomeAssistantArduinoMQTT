@@ -18,7 +18,7 @@ A flexible, lightweight C++ Arduino library designed to seamlessly interface **E
 * **Multi-Device (optional)**: Expose several Home Assistant devices (a gateway and its children) over a single MQTT connection.
 * **Device Discovery (optional)**: Publish a whole device and its entities as one message on a dedicated discovery topic.
 * **Custom Property Support**: Extend discovery payloads with custom JSON properties using flexible `.set()` key-value pairs.
-* **Built on Modern Libraries**: Uses  `PubSubClient` for reliable MQTT communication.
+* **Built on Modern Libraries**: Uses [`PubSubClient3`](https://github.com/hmueller01/pubsubclient3), the maintained fork of `PubSubClient`, for reliable MQTT communication.
 
 ---
 
@@ -28,7 +28,9 @@ Only core MQTT client functionality is required:
 
 | Library | Version | Description |
 | :--- | :--- | :--- |
-| [**PubSubClient**](https://github.com/knolleary/pubsubclient) | `>= 2.8` | Core MQTT client transport |
+| [**PubSubClient3**](https://github.com/hmueller01/pubsubclient3) | `>= 3.3.2` | Core MQTT client transport |
+
+The original [knolleary/PubSubClient](https://github.com/knolleary/pubsubclient) `>= 2.8` still works, but it is no longer maintained. Install only one of the two: both provide `PubSubClient.h`.
 
 ---
 
@@ -48,7 +50,7 @@ platform = espressif32
 board = esp32dev
 framework = arduino
 lib_deps =
-    knolleary/PubSubClient @ ^2.8.0
+    hmueller01/PubSubClient3 @ ^3.3.2
     https://github.com/Bettapro/HomeAssistantArduinoMQTT.git
 
 ```
@@ -147,9 +149,11 @@ HomeAssistantArduinoMQTT haMqtt(capacity);
 
 #### Connection Setup
 ```cpp
-void begin(Client& client, const char* server, const uint16_t port);
-void begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
+bool begin(Client& client, const char* server, const uint16_t port);
+bool begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
 ```
+
+`begin()` returns `false` if the MQTT buffer could not be allocated (not enough RAM). The short form uses a keepalive of 15 s and a buffer of `HAAM_MQTT_BUFFER_SIZE` bytes: 1024 by default, while on AVR the PubSubClient default (`MQTT_MAX_PACKET_SIZE`, 256) is kept, with no reallocation. Discovery payloads are streamed, so the buffer only has to hold the CONNECT packet, one state message and the largest inbound command. Override it with a build flag, e.g. `-DHAAM_MQTT_BUFFER_SIZE=192`.
 
 ---
 

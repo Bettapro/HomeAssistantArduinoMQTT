@@ -8,8 +8,7 @@
     "discovery",
     "esp32",
     "esp8266",
-    "iot",
-    "zero-heap"
+    "iot"
   ],
   "authors": [
     {
@@ -24,6 +23,6 @@
   "frameworks": "arduino",
   "platforms": "*",
   "dependencies": {
-    "PubSubClient": ">=2.8"
+    "hmueller01/PubSubClient3": "^3.3.2"
   }
 }
