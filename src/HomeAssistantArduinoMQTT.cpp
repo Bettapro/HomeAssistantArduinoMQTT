@@ -41,6 +41,42 @@ inline bool isEmptyX(const char* s, bool pgm) {
     return s == nullptr || (pgm ? pgm_read_byte(s) == 0 : s[0] == '\0');
 }
 
+// string equality, each side in RAM or in flash
+bool eqX(const char* a, bool aPgm, const char* b, bool bPgm) {
+    for (;; a++, b++) {
+        char ca = aPgm ? (char)pgm_read_byte(a) : *a;
+        char cb = bPgm ? (char)pgm_read_byte(b) : *b;
+        if (ca != cb) return false;
+        if (ca == '\0') return true;
+    }
+}
+
+// A custom command name is one topic level: it has to be matched by the "+"
+// of the subscription and to fit the item buffer when a command arrives.
+bool isValidCommandName(const char* s) {
+    for (size_t n = 0; s[n]; n++) {
+        if (s[n] == '/' || s[n] == '+' || s[n] == '#') return false;
+        if (n + 1 >= HAAM_ITEM_LEN) return false;
+    }
+    return true;
+}
+
+// {"event_type":"<type>"}; false when it does not fit: a truncated payload
+// would not be valid JSON
+bool buildEventPayload(char* payload, size_t cap, const char* eventType) {
+    size_t p = appPgm(payload, cap, 0, PSTR("{\"event_type\":\""));
+    for (const char* s = eventType; s && *s; s++) {
+        char c = *s;
+        if ((uint8_t)c < 0x20) continue;
+        if (c == '"' || c == '\\') p = appChar(payload, cap, p, '\\');
+        p = appChar(payload, cap, p, c);
+    }
+    p = appPgm(payload, cap, p, PSTR("\"}"));
+    if (p + 1 >= cap) return false;
+    payload[p] = '\0';
+    return true;
+}
+
 // "haam/<dev>/<a>[/<b>]" as a JSON string
 void writeTopicValue(HAJsonStream& js, const char* dev,
                      const char* a, bool aPgm,
@@ -65,7 +101,7 @@ void writeTopicValue(HAJsonStream& js, const char* dev,
 // ===========================================================================
 int HAAMFmt::uintToBuf(char* buf, size_t size, unsigned long val) {
     if (!size) return 0;
-    char tmp[11];
+    char tmp[3 * sizeof(unsigned long)];  // enough digits for any unsigned long
     uint8_t n = 0;
     do {
         tmp[n++] = (char)('0' + (val % 10));
@@ -261,7 +297,7 @@ void HAJsonStream::num(long v) {
         put('-');
         u = 0UL - u;  // also correct for LONG_MIN
     }
-    char tmp[11];
+    char tmp[3 * sizeof(unsigned long) + 1];
     HAAMFmt::uintToBuf(tmp, sizeof(tmp), u);
     for (const char* c = tmp; *c; c++) put(*c);
 }
@@ -402,7 +438,12 @@ uint8_t HomeAssistantArduinoMQTT::addDevice(const char* id, const char* name) {
 #ifndef HAAM_NO_COMMANDS
     // added while connected: subscribe now, connect() covers the next sessions
     if (_mqtt.connected()) {
-        if (_readValuesEnabled) _subscribe(dev, HAKeys::TOPIC_STATE);
+        if (_readValuesEnabled) {
+            // new restore window, so the retained states of this device can arrive
+            _subscribe(dev, HAKeys::TOPIC_STATE);
+            _restoreStart = millis();
+            _stateSubscribed = true;
+        }
         if (commandEnabled) _subscribe(dev, HAKeys::TOPIC_COMMAND);
     }
 #endif
@@ -475,7 +516,15 @@ void HomeAssistantArduinoMQTT::_handleMessage(char* topic, byte* payload, haam_l
         // unless a newer local value is waiting to be sent. Unknown items never
         // take a slot. Availability is not touched.
         int16_t i = _lookup(dev, item, false);
-        if (i >= 0 && !values[i].valueChanged) {
+        if (i >= 0) {
+            // our own event echoed back: an event is not a state to restore
+            if (values[i].isEvent) return;
+            // value already sent in this session: the message is the broker echoing
+            // our own publish, or a retained state older than it. Neither is news.
+            if (values[i].stateSent) return;
+            // a newer local value is waiting to be sent: the retained state is
+            // older than it, and is not news for the application either
+            if (values[i].valueChanged) return;
             _storeValueAt(i, cPayload, false);
             values[i].stateSent = 1;
         }
@@ -558,7 +607,9 @@ int16_t HomeAssistantArduinoMQTT::_allocate(uint8_t dev, const char* item) {
         v.lastAvailable = 0;
         v.stateSent = 0;
         v.isConfigured = 0;
+        v.isEvent = 0;
         v.availabilitySent = 0;
+        v.availabilitySet = 0;
     }
     return i;
 }
@@ -584,6 +635,11 @@ bool HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const u
 
 bool HomeAssistantArduinoMQTT::begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive) {
     sanitizeID(mqttDeviceName, _sanitizedDeviceName, sizeof(_sanitizedDeviceName));
+    // the device id is the MQTT client id and a level of every topic
+    if (_sanitizedDeviceName[0] == '\0') {
+        _started = false;
+        return false;
+    }
 
     _mqtt.setClient(client);
     bool bufferOk = true;
@@ -610,6 +666,11 @@ void HomeAssistantArduinoMQTT::loop() {
     if (!_started) return;
     if (_mqtt.connected()) {
         _mqtt.loop();
+#if !defined(HAAM_NO_COMMANDS) && HAAM_RESTORE_WINDOW_MS > 0
+        // restore window over: without the subscription the broker no longer
+        // echoes back every state this device publishes
+        if (_stateSubscribed && !_restorePending()) _unsubscribeStates();
+#endif
     } else {
         connect();
     }
@@ -624,7 +685,6 @@ bool HomeAssistantArduinoMQTT::_publishAvailability(bool isAvailable) {
 void HomeAssistantArduinoMQTT::connect() {
     unsigned long now = millis();
     if (_lastReconnectAttempt != 0 && (now - _lastReconnectAttempt) < 5000) return;
-    _lastReconnectAttempt = now;
 
     // empty credentials: anonymous connection (an empty user name is not anonymous)
     const char* user = isEmptyStr(mqttUser) ? nullptr : mqttUser;
@@ -640,7 +700,16 @@ void HomeAssistantArduinoMQTT::connect() {
         success = _mqtt.connect(_sanitizedDeviceName, user, pass);
     }
 
+    // connect() can block for the whole socket timeout: the delay before the
+    // next attempt starts when this one ends (0 means "no attempt yet")
+    _lastReconnectAttempt = millis();
+    if (_lastReconnectAttempt == 0) _lastReconnectAttempt = 1;
+
     if (!success) return;
+
+#ifndef HAAM_NO_COMMANDS
+    _restoreStart = millis();
+#endif
 
     // new session: send everything again (values set while offline stay "changed")
     for (uint8_t i = 0; i < maxEntityNum; i++) {
@@ -658,6 +727,7 @@ void HomeAssistantArduinoMQTT::connect() {
         if (_readValuesEnabled) _subscribe(d, HAKeys::TOPIC_STATE);
         if (commandEnabled) _subscribe(d, HAKeys::TOPIC_COMMAND);
     }
+    _stateSubscribed = _readValuesEnabled;
 #endif
 }
 
@@ -666,6 +736,9 @@ bool HomeAssistantArduinoMQTT::connected() {
 }
 
 void HomeAssistantArduinoMQTT::disconnect(bool publishOffline) {
+    // loop() no longer reconnects: begin() starts again, without the reconnect delay
+    _started = false;
+    _lastReconnectAttempt = 0;
     if (!_mqtt.connected()) return;
     if (publishOffline && useSharedAvailability) _publishAvailability(false);
     _mqtt.disconnect();
@@ -704,6 +777,10 @@ HAEntityBuilder HomeAssistantArduinoMQTT::_make(uint8_t dev, uint8_t kind, const
         case KIND_NUMBER:
             b._type = HAKeys::TYPE_NUMBER;
             b._commandTopic = 1;
+            break;
+        case KIND_EVENT:
+            b._type = HAKeys::TYPE_EVENT;
+            b._event = 1;
             break;
         default:  // KIND_SELECT
             b._type = HAKeys::TYPE_SELECT;
@@ -815,13 +892,13 @@ void HomeAssistantArduinoMQTT::_writeConfig(HAJsonStream& js, HAEntityBuilder* b
                                                 HAKeys::ICON, HAKeys::UNIT_OF_MEASUREMENT};
     uint8_t bit = HAEntityBuilder::P_CATEGORY;
     for (uint8_t i = 0; i < 5; i++, bit <<= 1) {
-        if (!fields[i]) continue;
+        if (isEmptyX(fields[i], b->_isPgm(bit))) continue;  // an empty value is not valid for Home Assistant
         js.key((const char*)pgm_read_ptr(&keys[i]));
         js.strX(fields[i], b->_isPgm(bit));
     }
 
     if (b->_options && b->_optionCount) {
-        js.key(HAKeys::OPTIONS);
+        js.key(b->_event ? HAKeys::EVENT_TYPES : HAKeys::OPTIONS);
         js.openArr();
         for (uint8_t i = 0; i < b->_optionCount; i++) js.str(b->_options[i]);
         js.closeArr();
@@ -880,10 +957,13 @@ int16_t HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
     _entityId(builder, entityId, sizeof(entityId));
     uint8_t dev = builder->_device;
 
+    // a command name that could never receive a command: nothing is published
+    bool commandOk = !builder->_commandTopic || isEmptyStr(builder->_commandTopicName) || isValidCommandName(builder->_commandTopicName);
+
 #ifdef HAAM_DEVICE_DISCOVERY
     if (_ddActive) {
         // inside publishDevice(): the entity belongs to the device being published
-        if (entityId[0] == '\0') return -1;
+        if (entityId[0] == '\0' || !commandOk) return -1;
         dev = _ddDevice;
         if (_ddStream) {
             _ddStream->keyStr(entityId);
@@ -894,9 +974,15 @@ int16_t HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
     }
 #endif
 
-    if (!_isValidDevice(dev)) return -1;
+    _configSent = false;
+    if (!_isValidDevice(dev) || !commandOk) return -1;
 
-    if (enableConfigPublishing && entityId[0] != '\0' && _mqtt.connected()) {
+    // registered first: with the entity table full (or an empty id) nothing is
+    // published, Home Assistant would get an entity that can never have a value
+    int16_t slot = _registerEntity(builder, dev, entityId);
+    if (slot < 0) return -1;
+
+    if (enableConfigPublishing && _mqtt.connected()) {
         size_t payloadLen;
         {
             HAJsonStream measure(nullptr);
@@ -921,11 +1007,11 @@ int16_t HomeAssistantArduinoMQTT::publishConfig(HAEntityBuilder* builder) {
             HAJsonStream out(&_mqtt);
             _writeConfig(out, builder, dev, entityId, false);
             out.flush();
-            _mqtt.endPublish();
+            _configSent = _mqtt.endPublish() != 0 && out.ok();
         }
     }
 
-    return _registerEntity(builder, dev, entityId);
+    return slot;
 }
 
 int16_t HomeAssistantArduinoMQTT::_registerEntity(HAEntityBuilder* builder, uint8_t dev, const char* entityId) {
@@ -936,6 +1022,7 @@ int16_t HomeAssistantArduinoMQTT::_registerEntity(HAEntityBuilder* builder, uint
     bool wasConfigured = v.isConfigured;
     v.isConfigured = 1;
     v.hasIndAvail = builder->_indAvail ? 1 : 0;
+    v.isEvent = builder->_event ? 1 : 0;
 
     // a value stored before publish() (e.g. deep sleep) or since a previous publish() wins over startup()
     bool startupPgm = builder->_isPgm(HAEntityBuilder::P_STARTUP);
@@ -949,13 +1036,15 @@ int16_t HomeAssistantArduinoMQTT::_registerEntity(HAEntityBuilder* builder, uint
             tmp[appPgm(tmp, sizeof(tmp), 0, sv)] = '\0';
             sv = tmp;
         }
-        // a default, not a local change: a state restored by readValues() replaces it
-        _setValueAt(slot, sv, false);
+        // a default, not a local change: a state restored by readValues() replaces it.
+        // An availability set by the application wins over the default one.
+        _storeValueAt(slot, sv, false);
+        if (!v.availabilitySet) _setAvailable(slot, v.value[0] != '\0');
         v.stateSent = 0;
-    } else if (!wasConfigured && builder->_indAvail) {
+    } else if (!wasConfigured && builder->_indAvail && !v.availabilitySet) {
         // first publish(): initial availability; later ones keep what the application set.
-        // Entities without a state (e.g. buttons) have no value to wait for: start available.
-        _setAvailable(slot, hasStored || !builder->_stateTopic);
+        // Entities without a state (e.g. buttons) and events have no value to wait for: start available.
+        _setAvailable(slot, hasStored || !builder->_stateTopic || builder->_event);
     }
     return slot;
 }
@@ -1072,7 +1161,9 @@ void HomeAssistantArduinoMQTT::_clearSetTopicAt(uint8_t dev, const char* sanitiz
 void HomeAssistantArduinoMQTT::_storeValueAt(int16_t i, const char* value, bool markAsChanged) {
     if (!value) value = "";
     ItemValue& v = values[i];
-    if (strcmp(v.value, value) != 0) {
+    // compared as it would be stored: a value longer than the buffer is
+    // truncated, and must not look like a change on every call
+    if (strncmp(v.value, value, sizeof(v.value) - 1) != 0) {
         copyStr(v.value, sizeof(v.value), value);
         if (markAsChanged) v.valueChanged = 1;
     }
@@ -1103,14 +1194,36 @@ void HomeAssistantArduinoMQTT::_setAvailable(int16_t i, bool isAvailable) {
 
 void HomeAssistantArduinoMQTT::_setEntityAvailability(uint8_t dev, const char* entityId, bool isAvailable) {
     int16_t i = _allocate(dev, entityId);
-    if (i >= 0) _setAvailable(i, isAvailable);
+    if (i >= 0) {
+        _setAvailable(i, isAvailable);
+        values[i].availabilitySet = 1;
+    }
 }
 
 #ifndef HAAM_NO_COMMANDS
 void HomeAssistantArduinoMQTT::readValues() {
     _readValuesEnabled = true;
     if (!_mqtt.connected()) return;
+    _restoreStart = millis();
+    _stateSubscribed = true;
     for (uint8_t d = 0; d < _deviceCount(); d++) _subscribe(d, HAKeys::TOPIC_STATE);
+}
+
+void HomeAssistantArduinoMQTT::_unsubscribeStates() {
+    _stateSubscribed = false;
+    for (uint8_t d = 0; d < _deviceCount(); d++) {
+        _valueTopic(d, "+", false, HAKeys::TOPIC_STATE, true);
+        _mqtt.unsubscribe(_topicBuf);
+    }
+}
+
+// true while the retained states requested by readValues() may still arrive
+bool HomeAssistantArduinoMQTT::_restorePending() const {
+#if HAAM_RESTORE_WINDOW_MS > 0
+    return _readValuesEnabled && (millis() - _restoreStart) < (unsigned long)(HAAM_RESTORE_WINDOW_MS);
+#else
+    return false;
+#endif
 }
 #endif
 
@@ -1119,7 +1232,15 @@ bool HomeAssistantArduinoMQTT::_sendSingleValue(int16_t i, bool force) {
     uint8_t dev = _itemDevice((uint8_t)i);
 
     // state: only when there is a value to send
-    if (v.value[0] != '\0' && (force || v.valueChanged || !v.stateSent)) {
+    // events are sent by sendEvent() only, never as a retained state
+    bool sendState = !v.isEvent && v.value[0] != '\0' && (force || v.valueChanged || !v.stateSent);
+#ifndef HAAM_NO_COMMANDS
+    // a value that was not changed locally (startup() default, or the one of
+    // the previous session) waits for the retained state: sending it now would
+    // overwrite on the broker the state readValues() is about to restore
+    if (sendState && !force && !v.valueChanged && _restorePending()) sendState = false;
+#endif
+    if (sendState) {
         _valueTopic(dev, v.item, false, HAKeys::TOPIC_STATE, true);
         if (!_mqtt.publish(_topicBuf, v.value, true)) return false;
         v.stateSent = 1;
@@ -1159,7 +1280,11 @@ bool HomeAssistantArduinoMQTT::sendValues(bool force) {
 #endif
 
     for (uint8_t i = 0; i < maxEntityNum; i++) {
-        if (values[i].item[0] != '\0') sent &= _sendSingleValue(i, force);
+        if (values[i].item[0] == '\0') continue;
+        if (!_sendSingleValue(i, force)) {
+            sent = false;
+            if (!_mqtt.connected()) break;  // connection lost: the others would fail too
+        }
     }
     return sent;
 }
@@ -1171,26 +1296,28 @@ bool HomeAssistantArduinoMQTT::_sendValue(uint8_t dev, const char* item, bool fo
     return (i >= 0) ? _sendSingleValue(i, force) : false;
 }
 
-void HomeAssistantArduinoMQTT::_sendCommand(uint8_t dev, const char* commandTopic, const char* payload) {
-    if (!_isValidDevice(dev)) return;
+bool HomeAssistantArduinoMQTT::_sendCommand(uint8_t dev, const char* commandTopic, const char* payload) {
+    if (!_isValidDevice(dev)) return false;
     _valueTopic(dev, commandTopic, false, nullptr, false);
-    _mqtt.publish(_topicBuf, payload, false);
+    return _mqtt.publish(_topicBuf, payload, false);
 }
 
-void HomeAssistantArduinoMQTT::_sendEvent(uint8_t dev, const char* eventName, const char* eventType) {
+bool HomeAssistantArduinoMQTT::_sendEvent(uint8_t dev, const char* eventName, const char* eventType) {
     char payload[HAAM_PAYLOAD_LEN];
-    const size_t cap = sizeof(payload);
-    size_t p = appPgm(payload, cap, 0, PSTR("{\"event_type\":\""));
-    for (const char* s = eventType; s && *s; s++) {
-        char c = *s;
-        if ((uint8_t)c < 0x20) continue;
-        if (c == '"' || c == '\\') p = appChar(payload, cap, p, '\\');
-        p = appChar(payload, cap, p, c);
-    }
-    p = appPgm(payload, cap, p, PSTR("\"}"));
-    if (p + 1 >= cap) return;  // possibly truncated: it would not be valid JSON
-    payload[p] = '\0';
-    _sendCommand(dev, eventName, payload);
+    if (!buildEventPayload(payload, sizeof(payload), eventType)) return false;
+    return _sendCommand(dev, eventName, payload);
+}
+
+// Event entity: published on its state topic, not retained (an event is not a
+// state) and never stored, so it is not sent again on the next connection.
+bool HomeAssistantArduinoMQTT::sendEvent(HAAMEntity entity, const char* eventType) {
+    int16_t i = _slot(entity);
+    if (i < 0 || !_mqtt.connected()) return false;
+
+    char payload[HAAM_PAYLOAD_LEN];
+    if (!buildEventPayload(payload, sizeof(payload), eventType)) return false;
+    _valueTopic(_itemDevice((uint8_t)i), values[i].item, false, HAKeys::TOPIC_STATE, true);
+    return _mqtt.publish(_topicBuf, payload, false);
 }
 
 // ---- root device API ----
@@ -1209,11 +1336,11 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(const char* entityId, bool 
 bool HomeAssistantArduinoMQTT::sendValue(const char* item, bool force) {
     return _sendValue(HAAM_ROOT_DEVICE, item, force);
 }
-void HomeAssistantArduinoMQTT::sendCommand(const char* commandTopic, const char* payload) {
-    _sendCommand(HAAM_ROOT_DEVICE, commandTopic, payload);
+bool HomeAssistantArduinoMQTT::sendCommand(const char* commandTopic, const char* payload) {
+    return _sendCommand(HAAM_ROOT_DEVICE, commandTopic, payload);
 }
-void HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* eventType) {
-    _sendEvent(HAAM_ROOT_DEVICE, eventName, eventType);
+bool HomeAssistantArduinoMQTT::sendEvent(const char* eventName, const char* eventType) {
+    return _sendEvent(HAAM_ROOT_DEVICE, eventName, eventType);
 }
 
 // ---- entity handles ----
@@ -1247,7 +1374,10 @@ void HomeAssistantArduinoMQTT::clearSetTopic(HAAMEntity entity) {
 }
 void HomeAssistantArduinoMQTT::setEntityAvailability(HAAMEntity entity, bool isAvailable) {
     int16_t i = _slot(entity);
-    if (i >= 0) _setAvailable(i, isAvailable);
+    if (i >= 0) {
+        _setAvailable(i, isAvailable);
+        values[i].availabilitySet = 1;
+    }
 }
 
 #ifdef HAAM_MULTI_DEVICE
@@ -1270,11 +1400,11 @@ void HomeAssistantArduinoMQTT::setEntityAvailability(uint8_t dev, const char* en
 bool HomeAssistantArduinoMQTT::sendValue(uint8_t dev, const char* item, bool force) {
     return _sendValue(dev, item, force);
 }
-void HomeAssistantArduinoMQTT::sendCommand(uint8_t dev, const char* commandTopic, const char* payload) {
-    _sendCommand(dev, commandTopic, payload);
+bool HomeAssistantArduinoMQTT::sendCommand(uint8_t dev, const char* commandTopic, const char* payload) {
+    return _sendCommand(dev, commandTopic, payload);
 }
-void HomeAssistantArduinoMQTT::sendEvent(uint8_t dev, const char* eventName, const char* eventType) {
-    _sendEvent(dev, eventName, eventType);
+bool HomeAssistantArduinoMQTT::sendEvent(uint8_t dev, const char* eventName, const char* eventType) {
+    return _sendEvent(dev, eventName, eventType);
 }
 #endif
 
@@ -1282,7 +1412,7 @@ void HomeAssistantArduinoMQTT::sendEvent(uint8_t dev, const char* eventName, con
 //  HAEntityBuilder
 // ===========================================================================
 HAEntityBuilder::HAEntityBuilder(HomeAssistantArduinoMQTT* mqtt, const char* type, const char* id, const char* name, uint8_t device)
-    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _options(nullptr), _optionCount(0), _customPropCount(0), _device(device), _suggestedPrecision(0), _pgm(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0) {}
+    : _mqtt(mqtt), _type(type), _name(name), _id(id), _commandTopicName(nullptr), _startupValue(nullptr), _category(nullptr), _deviceClass(nullptr), _stateClass(nullptr), _icon(nullptr), _unit(nullptr), _options(nullptr), _optionCount(0), _customPropCount(0), _device(device), _suggestedPrecision(0), _pgm(0), _commandTopic(0), _stateTopic(1), _indAvail(0), _suggestedPrecisionEnable(0), _event(0) {}
 
 void HAEntityBuilder::_str(const char*& field, const char* val, uint8_t bit, bool pgm) {
     field = val;
@@ -1311,8 +1441,17 @@ void HAEntityBuilder::options(const char* const* opts, uint8_t count) {
 }
 
 HACustomProp* HAEntityBuilder::_prop(const char* key, bool keyPgm, uint8_t type) {
-    if (!key || _customPropCount >= HAAM_MAX_CUSTOM_PROPS) return nullptr;
-    HACustomProp* cp = &_customProps[_customPropCount++];
+    if (!key) return nullptr;
+    HACustomProp* cp = nullptr;
+    // a key set again replaces its previous value (e.g. the default pl_on of
+    // a switch) instead of being written twice in the payload
+    for (uint8_t i = 0; i < _customPropCount && !cp; i++) {
+        if (eqX(_customProps[i].key, _customProps[i].keyPgm, key, keyPgm)) cp = &_customProps[i];
+    }
+    if (!cp) {
+        if (_customPropCount >= HAAM_MAX_CUSTOM_PROPS) return nullptr;
+        cp = &_customProps[_customPropCount++];
+    }
     cp->key = key;
     cp->keyPgm = keyPgm ? 1 : 0;
     cp->valPgm = 0;

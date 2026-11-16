@@ -30,7 +30,9 @@ Only core MQTT client functionality is required:
 | :--- | :--- | :--- |
 | [**PubSubClient3**](https://github.com/hmueller01/pubsubclient3) | `>= 3.3.2` | Core MQTT client transport |
 
-The original [knolleary/PubSubClient](https://github.com/knolleary/pubsubclient) `>= 2.8` still works, but it is no longer maintained. Install only one of the two: both provide `PubSubClient.h`.
+The original [knolleary/PubSubClient](https://github.com/knolleary/pubsubclient) `>= 2.8` still works, but it is no longer maintained. Install only one of the two: both provide `PubSubClient.h`, and with both the build fails with multiple definitions of `PubSubClient`.
+
+PlatformIO and the Arduino Library Manager install `PubSubClient3` automatically as a dependency of this library. To use `knolleary/PubSubClient` instead, remove `PubSubClient3` from the dependencies: in PlatformIO with `lib_ignore = PubSubClient3` in `platformio.ini`.
 
 ---
 
@@ -153,7 +155,9 @@ bool begin(Client& client, const char* server, const uint16_t port);
 bool begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
 ```
 
-`begin()` returns `false` if the MQTT buffer could not be allocated (not enough RAM). The short form uses a keepalive of 15 s and a buffer of `HAAM_MQTT_BUFFER_SIZE` bytes: 1024 by default, while on AVR the PubSubClient default (`MQTT_MAX_PACKET_SIZE`, 256) is kept, with no reallocation. Discovery payloads are streamed, so the buffer only has to hold the CONNECT packet, one state message and the largest inbound command. Override it with a build flag, e.g. `-DHAAM_MQTT_BUFFER_SIZE=192`.
+`begin()` returns `false` if the MQTT buffer could not be allocated (not enough RAM), or if `mqttDeviceName` is empty once sanitized (nothing is started in that case). When the connection stays down, `state()` returns the PubSubClient state code that tells why. After a `publish()`, `lastConfigSent()` tells whether the discovery config was actually sent. The short form uses a keepalive of 15 s and a buffer of `HAAM_MQTT_BUFFER_SIZE` bytes: 1024 by default, while on AVR the PubSubClient default (`MQTT_MAX_PACKET_SIZE`, 256) is kept, with no reallocation. Discovery payloads are streamed, so the buffer only has to hold the CONNECT packet, one state message and the largest inbound command. Override it with a build flag, e.g. `-DHAAM_MQTT_BUFFER_SIZE=192`.
+
+`loop()` keeps the connection alive and reconnects (at most once every 5 s) when it drops. `disconnect(publishOffline = true)` closes the session, reporting the device offline first unless `publishOffline` is `false` (e.g. deep sleep with `expire_after`). After `disconnect()`, `loop()` no longer reconnects: call `begin()` again to start a new session.
 
 ---
 
@@ -167,6 +171,7 @@ The library offers helper functions to instantiate entity builders for common Ho
 * `newButtonEntity(id, name)`: Trigger button action (`PRESS`).
 * `newNumberEntity(id, name)`: Numeric slider or input box.
 * `newSelectEntity(id, name)`: Dropdown selection entity.
+* `newEventEntity(id, name)`: Event entity (button press, doorbell, ...). Declare its types with `eventTypes()` and fire it with `sendEvent(handle, type)`.
 * `newEntity(type, id, name)`: Generic builder for custom domains.
 
 #### Configuring Entity Properties
@@ -201,6 +206,22 @@ mode.options(modes);                      // or mode.options(modes, 3);
 mode.icon("mdi:radiator");
 mode.startup("Off");
 mode.publish();
+
+// Event entity: events are not retained and are never stored as a state
+const char* presses[] = {"press", "hold"};
+
+HAEntityBuilder bell = haMqtt.newEventEntity("doorbell", "Doorbell");
+bell.eventTypes(presses);                 // or bell.eventTypes(presses, 2);
+HAAMEntity bellEntity = bell.publish();
+
+haMqtt.sendEvent(bellEntity, "press");    // false when it was not sent
+// sendEvent("name", "type") is a different, raw message on haam/<device id>/name:
+// it is not tied to an entity (e.g. for MQTT triggers in automations).
+
+// command(true, "custom_name") moves the command topic to
+// haam/<device id>/custom_name/set. The name is used as it is: it must be
+// shorter than HAAM_ITEM_LEN and must not contain '/', '+' or '#', otherwise
+// publish() returns an invalid handle and nothing is published.
 ```
 
 When an option is chosen in Home Assistant, `onMQTTMessage` receives the option text as `value` (with `isState == false`). Reflect it back with `setValue("mode", value)` + `sendValue("mode")`.
@@ -235,9 +256,10 @@ Entities with `independentAvailability(true)` (the default for the `newXxxEntity
 * `setValue(id, "...")` with a non-empty value marks the entity **available**; an empty value (or `nullptr`) marks it **unavailable**.
 * `setEntityAvailability(id, false)` marks the entity **unavailable** and keeps its value (`getValue()` still returns it). The next `setValue()` makes it available again, even with the same value.
 * `setEntityAvailability(id, true)` marks it available, also without a value (Home Assistant then shows "unknown").
-* On the first `publish()`, an entity is available if it already has a value (set before `publish()`) or a `startup()` value. Entities without a state topic (e.g. buttons) start available. Later `publish()` calls do not change availability or overwrite a stored value with `startup()`.
+* On the first `publish()`, an entity is available if it already has a value (set before `publish()`) or a `startup()` value. Entities without a state topic (e.g. buttons) start available. An availability set with `setEntityAvailability()` before `publish()` is kept instead. Later `publish()` calls do not change availability or overwrite a stored value with `startup()`.
 * With `useSharedAvailability` (default), an entity is also unavailable whenever the device is offline (LWT).
-* States received via `readValues()` update the stored value but never availability.
+* States received via `readValues()` update the stored value but never availability. Once an entity's value has been sent in the current session, its state messages are ignored and do not reach the callback: they are the broker echoing our own publish, or a retained state older than it. The same applies while a value set locally is still waiting to be sent.
+* With `readValues()`, for `HAAM_RESTORE_WINDOW_MS` (default 500 ms) after every connection `sendValues()` holds back the values that were not changed locally (e.g. `startup()` defaults), so the retained states can replace them instead of being overwritten. Values set with `setValue()` and forced sends (`force = true`) are never delayed. When the window ends, `loop()` unsubscribes from the state topics, so the broker stops echoing back every published state; they are subscribed again on the next connection. Set it to `0` with a build flag to disable the wait: the state topics then stay subscribed for the whole session.
 
 ```cpp
 // e.g. a sensor read over a bus that can fail

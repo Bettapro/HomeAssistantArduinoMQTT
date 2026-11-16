@@ -54,6 +54,10 @@ typedef unsigned int haam_len_t;
 #define HAAM_JSON_CHUNK 128
 #endif
 #endif
+// longest topic: homeassistant/binary_sensor/<device id>/<entity id>/config
+#if HAAM_TOPIC_LEN < HAAM_DEVICE_LEN + HAAM_ITEM_LEN + 35
+#error "HAAM_TOPIC_LEN is too small for HAAM_DEVICE_LEN and HAAM_ITEM_LEN: topics would be truncated"
+#endif
 #if HAAM_JSON_CHUNK < 1 || HAAM_JSON_CHUNK > 255
 #error "HAAM_JSON_CHUNK must be between 1 and 255"
 #endif
@@ -68,6 +72,14 @@ typedef unsigned int haam_len_t;
 #else
 #define HAAM_MQTT_BUFFER_SIZE 1024
 #endif
+#endif
+
+// With readValues(), time after a (re)connection during which sendValues()
+// holds back the values that were not changed locally (startup() defaults),
+// so that the retained states kept by the broker can replace them first.
+// Values set with setValue() and forced sends are never delayed. 0 = no wait.
+#ifndef HAAM_RESTORE_WINDOW_MS
+#define HAAM_RESTORE_WINDOW_MS 500
 #endif
 
 // ---------------------------------------------------------------------------
@@ -101,7 +113,7 @@ typedef unsigned int haam_len_t;
 #define HAAM_NO_DEVICE 0xFF
 
 #define HAAM_LIB_NAME "HomeAssistantArduinoMQTT"
-#define HAAM_LIB_VERSION "2.0.0"
+#define HAAM_LIB_VERSION "2.1.0"
 #define HAAM_LIB_URL "https://github.com/Bettapro/HomeAssistantArduinoMQTT"
 
 #if defined(ESP8266) || defined(ESP32)
@@ -213,6 +225,8 @@ struct ItemValue {
         uint8_t valueChanged : 1;  // set locally and not sent yet
         uint8_t isConfigured : 1;
         uint8_t availabilitySent : 1;
+        uint8_t availabilitySet : 1;  // set by setEntityAvailability(): publish() keeps it
+        uint8_t isEvent : 1;          // event entity: sendEvent() only, no stored state
 };
 
 // All the keys live in flash (PROGMEM): on AVR and ESP8266 a plain
@@ -257,6 +271,8 @@ const char TYPE_SWITCH[] PROGMEM = "switch";
 const char TYPE_BUTTON[] PROGMEM = "button";
 const char TYPE_NUMBER[] PROGMEM = "number";
 const char TYPE_SELECT[] PROGMEM = "select";
+const char TYPE_EVENT[] PROGMEM = "event";
+const char EVENT_TYPES[] PROGMEM = "event_types";
 
 const char PAYLOAD_ON[] PROGMEM = "pl_on";
 const char PAYLOAD_OFF[] PROGMEM = "pl_off";
@@ -392,7 +408,12 @@ class HomeAssistantArduinoMQTT {
 #endif
         HAMQTTCallback* _callbackListener;
         bool _readValuesEnabled = false;
+        unsigned long _restoreStart = 0;  // start of the readValues() restore window
+        bool _stateSubscribed = false;    // subscribed to the state topics in this session
+        bool _restorePending() const;
+        void _unsubscribeStates();
 #endif
+        bool _configSent = false;
         void _writeConfig(HAJsonStream& js, HAEntityBuilder* builder, uint8_t dev, const char* entityId, bool component);
         void _writeDevice(HAJsonStream& js, uint8_t dev);
         void _writeAvailability(HAJsonStream& js, uint8_t dev, const char* entityId);
@@ -415,8 +436,8 @@ class HomeAssistantArduinoMQTT {
         void _storeValueAt(int16_t i, const char* value, bool markAsChanged);
         void _setValueAt(int16_t i, const char* value, bool markAsChanged);
         void _clearSetTopicAt(uint8_t dev, const char* sanitizedItem);
-        void _sendCommand(uint8_t dev, const char* commandTopic, const char* payload);
-        void _sendEvent(uint8_t dev, const char* eventName, const char* eventType);
+        bool _sendCommand(uint8_t dev, const char* commandTopic, const char* payload);
+        bool _sendEvent(uint8_t dev, const char* eventName, const char* eventType);
         HAEntityBuilder _make(uint8_t dev, uint8_t kind, const char* type, const char* id, const char* name);
 
         unsigned long _lastReconnectAttempt = 0;
@@ -429,7 +450,8 @@ class HomeAssistantArduinoMQTT {
                          KIND_SWITCH,
                          KIND_BUTTON,
                          KIND_NUMBER,
-                         KIND_SELECT };
+                         KIND_SELECT,
+                         KIND_EVENT };
 
         const char* mqttUser = "";      // empty: connect without credentials
         const char* mqttPassword = "";  // empty: connect without password
@@ -460,15 +482,23 @@ class HomeAssistantArduinoMQTT {
         // bufferSize 0 keeps the current PubSubClient buffer.
         // Return false when the requested buffer could not be allocated (out of
         // RAM): the client keeps its previous buffer, check it before relying on
-        // large messages.
+        // large messages. Also false, and nothing is started, when mqttDeviceName
+        // is empty once sanitized: it is the client id and part of every topic.
         bool begin(Client& client, const char* server, const uint16_t port);
         bool begin(Client& client, const char* server, const uint16_t port, const uint16_t bufferSize, const uint16_t keepAlive);
 
         void loop();
         bool connected();
+        // PubSubClient state (MQTT_CONNECTED, MQTT_CONNECT_BAD_CREDENTIALS, ...):
+        // tells why the connection is down
+        int state() { return _mqtt.state(); }
+        // true when the last publish() outside publishDevice() sent its discovery
+        // config; false when offline, disabled, not registered or the write failed
+        bool lastConfigSent() const { return _configSent; }
         // Closes the MQTT session. With publishOffline (and useSharedAvailability)
         // the device is reported offline first; otherwise its availability is
-        // left as it is (e.g. deep sleep with expire_after).
+        // left as it is (e.g. deep sleep with expire_after). loop() does not
+        // reconnect afterwards: call begin() again to start a new session.
         void disconnect(bool publishOffline = true);
         bool sendValues(bool force = false);
 
@@ -479,8 +509,9 @@ class HomeAssistantArduinoMQTT {
 
         // ---- root device (the only device when multi-device is disabled) ----
         bool sendValue(const char* item, bool force = false);
-        void sendCommand(const char* commandTopic, const char* payload);
-        void sendEvent(const char* eventName, const char* eventType);
+        // false when the message was not sent (offline, or event type too long)
+        bool sendCommand(const char* commandTopic, const char* payload);
+        bool sendEvent(const char* eventName, const char* eventType);
 
         void setValue(const char* item, const char* value, bool markAsChanged = true);
         const char* getValue(const char* item);
@@ -495,6 +526,9 @@ class HomeAssistantArduinoMQTT {
         HAEntityBuilder newButtonEntity(const char* id, const char* name = nullptr);
         HAEntityBuilder newNumberEntity(const char* id, const char* name = nullptr);
         HAEntityBuilder newSelectEntity(const char* id, const char* name = nullptr);
+        // Event entity: declare its types with eventTypes(), fire it with
+        // sendEvent(handle, type).
+        HAEntityBuilder newEventEntity(const char* id, const char* name = nullptr);
 
         // ---- entity handles (any device) ----
         // Finds an entity already known to the library (published, or given a
@@ -506,6 +540,9 @@ class HomeAssistantArduinoMQTT {
         void setValue(HAAMEntity entity, const char* value, bool markAsChanged = true);
         const char* getValue(HAAMEntity entity);
         bool sendValue(HAAMEntity entity, bool force = false);
+        // Fires an event entity created with newEventEntity(): eventType must be
+        // one of its eventTypes(). Not retained; false when it was not sent.
+        bool sendEvent(HAAMEntity entity, const char* eventType);
         void clearSetTopic(HAAMEntity entity);
         void setEntityAvailability(HAAMEntity entity, bool isAvailable);
 
@@ -528,8 +565,8 @@ class HomeAssistantArduinoMQTT {
         HAAMEntity getEntity(uint8_t device, const char* item);
 
         bool sendValue(uint8_t device, const char* item, bool force = false);
-        void sendCommand(uint8_t device, const char* commandTopic, const char* payload);
-        void sendEvent(uint8_t device, const char* eventName, const char* eventType);
+        bool sendCommand(uint8_t device, const char* commandTopic, const char* payload);
+        bool sendEvent(uint8_t device, const char* eventName, const char* eventType);
 
         void setValue(uint8_t device, const char* item, const char* value, bool markAsChanged = true);
         const char* getValue(uint8_t device, const char* item);
@@ -543,6 +580,7 @@ class HomeAssistantArduinoMQTT {
         HAEntityBuilder newButtonEntity(uint8_t device, const char* id, const char* name = nullptr);
         HAEntityBuilder newNumberEntity(uint8_t device, const char* id, const char* name = nullptr);
         HAEntityBuilder newSelectEntity(uint8_t device, const char* id, const char* name = nullptr);
+        HAEntityBuilder newEventEntity(uint8_t device, const char* id, const char* name = nullptr);
 
 #ifdef HAAM_DEVICE_DISCOVERY
         bool publishDevice(uint8_t device, HAAMDeviceDeclarer declare);
@@ -593,6 +631,7 @@ class HAEntityBuilder {
         uint8_t _stateTopic : 1;
         uint8_t _indAvail : 1;
         uint8_t _suggestedPrecisionEnable : 1;
+        uint8_t _event : 1;  // event entity: options are written as event_types
 
         void _str(const char*& field, const char* val, uint8_t bit, bool pgm);
         HACustomProp* _prop(const char* key, bool keyPgm, uint8_t type);
@@ -629,6 +668,10 @@ class HAEntityBuilder {
         void options(const char* const* opts, uint8_t count);
         template <size_t N>
         void options(const char* const (&opts)[N]) { options(opts, (uint8_t)N); }
+        // event entities (newEventEntity()): the types sendEvent() can fire
+        void eventTypes(const char* const* types, uint8_t count) { options(types, count); }
+        template <size_t N>
+        void eventTypes(const char* const (&types)[N]) { options(types, (uint8_t)N); }
 
         // custom discovery keys, e.g. set(F("min"), 0) or set("mode", "box")
         void set(const char* key, const char* value) { _propStr(key, false, value, false); }
@@ -674,6 +717,9 @@ inline HAEntityBuilder HomeAssistantArduinoMQTT::newNumberEntity(const char* id,
 inline HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(const char* id, const char* name) {
     return _make(HAAM_ROOT_DEVICE, KIND_SELECT, nullptr, id, name);
 }
+inline HAEntityBuilder HomeAssistantArduinoMQTT::newEventEntity(const char* id, const char* name) {
+    return _make(HAAM_ROOT_DEVICE, KIND_EVENT, nullptr, id, name);
+}
 
 #ifdef HAAM_MULTI_DEVICE
 inline HAEntityBuilder HomeAssistantArduinoMQTT::newEntity(uint8_t device, const char* type, const char* id, const char* name) {
@@ -696,5 +742,8 @@ inline HAEntityBuilder HomeAssistantArduinoMQTT::newNumberEntity(uint8_t device,
 }
 inline HAEntityBuilder HomeAssistantArduinoMQTT::newSelectEntity(uint8_t device, const char* id, const char* name) {
     return _make(device, KIND_SELECT, nullptr, id, name);
+}
+inline HAEntityBuilder HomeAssistantArduinoMQTT::newEventEntity(uint8_t device, const char* id, const char* name) {
+    return _make(device, KIND_EVENT, nullptr, id, name);
 }
 #endif
